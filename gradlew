@@ -1,2 +1,2 @@
 #!/bin/bash
-exec gradle "$@"
+gradle assembleDebug "$@"
