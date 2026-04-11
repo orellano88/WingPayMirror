@@ -1,30 +1,35 @@
 package com.inversioneswing.paymirror
 
-import android.app.Notification
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
-import com.google.firebase.database.FirebaseDatabase
+import android.app.Notification
+import okhttp3.MediaType.Companion.toMediaType
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import okhttp3.RequestBody.Companion.toRequestBody
+import com.google.gson.Gson
 import java.util.regex.Pattern
+import kotlinx.coroutines.CoroutineScope
+import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.launch
 
 class StarkCaptureService : NotificationListenerService() {
 
-    private val db = FirebaseDatabase.getInstance().getReference("pagos_ventas")
+    private val client = OkHttpClient()
+    private val dbUrl = "https://wingpaymirror-default-rtdb.firebaseio.com/pagos.json"
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val pkg = sbn.packageName
         if (pkg == "com.bcp.innovabcp" || pkg == "com.viabcp.bcp") {
             val extras = sbn.notification.extras
-            val title = extras.getString("android.title") ?: ""
             val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
             val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString() ?: ""
-            val fullContent = "$text $bigText"
-
-            processPayment(fullContent, pkg)
+            
+            processPayment("$text $bigText", pkg)
         }
     }
 
     private fun processPayment(content: String, pkg: String) {
-        // Regex para capturar montos (S/ 10.00, S/10, S/. 10.00)
         val regex = Pattern.compile("(S/|S/\\.|S/\\s)(\\d+\\.\\d{2}|\\d+)")
         val matcher = regex.matcher(content)
 
@@ -32,20 +37,21 @@ class StarkCaptureService : NotificationListenerService() {
             val monto = matcher.group(2)
             val nombre = content.replace(matcher.group(0)!!, "")
                                 .replace("¡Yapeaste!", "")
-                                .replace("te envió", "")
-                                .replace("notificación", "").trim()
+                                .replace("te envió", "").trim()
 
-            val paymentId = System.currentTimeMillis().toString()
-            val paymentData = mapOf(
-                "id" to paymentId,
+            val data = mapOf(
                 "nombre" to nombre,
                 "monto" to monto,
-                "timestamp" to paymentId,
+                "timestamp" to System.currentTimeMillis(),
                 "banco" to if(pkg.contains("innova")) "YAPE" else "BCP"
             )
 
-            // Sincronización Espejo vía Firebase
-            db.child(paymentId).setValue(paymentData)
+            // Enviar a la nube vía REST (Protocolo Stark Independiente)
+            CoroutineScope(Dispatchers.IO).launch {
+                val body = Gson().toJson(data).toRequestBody("application/json".toMediaType())
+                val request = Request.Builder().url(dbUrl).post(body).build()
+                client.newCall(request).execute()
+            }
         }
     }
 }

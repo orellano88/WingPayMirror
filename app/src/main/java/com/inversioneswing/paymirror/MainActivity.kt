@@ -17,13 +17,18 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
-import com.google.firebase.database.*
+import okhttp3.OkHttpClient
+import okhttp3.Request
+import com.google.gson.Gson
+import com.google.gson.reflect.TypeToken
+import kotlinx.coroutines.delay
 import java.util.*
 
 class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private lateinit var tts: TextToSpeech
     private var isTtsReady = false
-    private val db = FirebaseDatabase.getInstance().getReference("pagos_ventas")
+    private val client = OkHttpClient()
+    private val dbUrl = "https://wingpaymirror-default-rtdb.firebaseio.com/pagos.json?orderBy=\"timestamp\"&limitToLast=10"
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
@@ -31,27 +36,33 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 
         setContent {
             val paymentList = remember { mutableStateListOf<Map<String, String>>() }
+            var lastId by remember { mutableStateOf("") }
 
-            // Escucha Espejo en Tiempo Real
+            // EFECTO ESPEJO STARK (Pooling de alta frecuencia)
             LaunchedEffect(Unit) {
-                db.limitToLast(50).addChildEventListener(object : ChildEventListener {
-                    override fun onChildAdded(snapshot: DataSnapshot, previousChildName: String?) {
-                        val rawData = snapshot.value as? Map<*, *>
-                        val data = rawData?.map { it.key.toString() to it.value.toString() }?.toMap() ?: return
+                while(true) {
+                    try {
+                        val request = Request.Builder().url(dbUrl).build()
+                        val response = client.newCall(request).execute()
+                        val json = response.body?.string() ?: ""
                         
-                        paymentList.add(0, data) // Añadir al principio para ver los nuevos arriba
+                        val type = object : TypeToken<Map<String, Map<String, String>>>() {}.type
+                        val data: Map<String, Map<String, String>> = Gson().fromJson(json, type) ?: emptyMap()
                         
-                        // Solo hablar si es un pago reciente (evitar hablar historial al abrir)
-                        val timestamp = data["timestamp"]?.toLong() ?: 0
-                        if (System.currentTimeMillis() - timestamp < 10000) {
-                            speakPayment(data["nombre"] ?: "Desconocido", data["monto"] ?: "0.00")
+                        val sortedPayments = data.values.sortedByDescending { it["timestamp"] }
+                        
+                        if (sortedPayments.isNotEmpty() && sortedPayments[0]["timestamp"] != lastId) {
+                            val newPayment = sortedPayments[0]
+                            paymentList.clear()
+                            paymentList.addAll(sortedPayments)
+                            lastId = newPayment["timestamp"] ?: ""
+                            
+                            // JARVIS habla
+                            speakPayment(newPayment["nombre"] ?: "Externo", newPayment["monto"] ?: "0")
                         }
-                    }
-                    override fun onChildChanged(s: DataSnapshot, p: String?) {}
-                    override fun onChildRemoved(s: DataSnapshot) {}
-                    override fun onChildMoved(s: DataSnapshot, p: String?) {}
-                    override fun onCancelled(e: DatabaseError) {}
-                })
+                    } catch (e: Exception) { }
+                    delay(2000) // Escaneo cada 2 segundos para no saturar
+                }
             }
 
             PayMirrorTheme {
@@ -63,10 +74,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun speakPayment(nombre: String, monto: String) {
-        if (isTtsReady) {
-            val text = "Pago recibido de $nombre por $monto soles"
-            tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, null)
-        }
+        if (isTtsReady) tts.speak("Pago de $nombre por $monto soles", TextToSpeech.QUEUE_FLUSH, null, null)
     }
 
     override fun onInit(status: Int) {
@@ -80,14 +88,8 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 @Composable
 fun ChatScreen(payments: List<Map<String, String>>) {
     Column(modifier = Modifier.fillMaxSize().padding(16.dp)) {
-        Text(
-            "WING PAY-MIRROR CORE",
-            color = Color(0xFF00F3FF),
-            fontSize = 20.sp,
-            fontWeight = FontWeight.Bold,
-            modifier = Modifier.padding(bottom = 16.dp)
-        )
-
+        Text("WING PAY-MIRROR // INDEPENDIENTE", color = Color(0xFF00F3FF), fontSize = 18.sp, fontWeight = FontWeight.Bold)
+        Spacer(modifier = Modifier.height(16.dp))
         LazyColumn(modifier = Modifier.fillMaxSize()) {
             items(payments) { payment ->
                 PaymentBubble(payment)
@@ -98,27 +100,16 @@ fun ChatScreen(payments: List<Map<String, String>>) {
 
 @Composable
 fun PaymentBubble(payment: Map<String, String>) {
-    val banco = payment["banco"] ?: "YAPE"
-    val colorBanco = if (banco == "YAPE") Color(0xFF25D366) else Color(0xFF00F3FF)
-
-    Column(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(vertical = 8.dp)
-            .background(Color(0xFF1A1A1A), RoundedCornerShape(12.dp))
-            .border(1.dp, colorBanco.copy(alpha = 0.3f), RoundedCornerShape(12.dp))
-            .padding(12.dp)
-    ) {
+    val isYape = payment["banco"] == "YAPE"
+    val color = if (isYape) Color(0xFF25D366) else Color(0xFF00F3FF)
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 4.dp).background(Color(0xFF1A1A1A), RoundedCornerShape(12.dp)).border(1.dp, color.copy(alpha = 0.3f), RoundedCornerShape(12.dp)).padding(12.dp)) {
         Row(modifier = Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-            Text(payment["nombre"] ?: "Desconocido", color = colorBanco, fontWeight = FontWeight.Bold)
-            Text(banco, color = colorBanco.copy(alpha = 0.5f), fontSize = 10.sp)
+            Text(payment["nombre"] ?: "Desconocido", color = color, fontWeight = FontWeight.Bold)
+            Text(payment["banco"] ?: "", color = color.copy(alpha = 0.5f), fontSize = 10.sp)
         }
-        Spacer(modifier = Modifier.height(4.dp))
-        Text("S/ ${payment["monto"]}", color = Color.White, fontSize = 24.sp, fontWeight = FontWeight.ExtraBold)
+        Text("S/ ${payment["monto"]}", color = Color.White, fontSize = 22.sp, fontWeight = FontWeight.Black)
     }
 }
 
 @Composable
-fun PayMirrorTheme(content: @Composable () -> Unit) {
-    MaterialTheme(content = content)
-}
+fun PayMirrorTheme(content: @Composable () -> Unit) { MaterialTheme(content = content) }
