@@ -7,14 +7,21 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-    - name: Checkout
+    - name: Checkout del Proyecto
       uses: actions/checkout@v4
 
-    - name: Java 17
+    - name: Configurar Java JDK 17
       uses: actions/setup-java@v4
       with:
         java-version: '17'
         distribution: 'temurin'
 
-    - name: Gradle Build
+    - name: Instalar Gradle 8.5 Nativo
+      run: |
+        wget -q https://services.gradle.org/distributions/gradle-8.5-bin.zip
+        sudo unzip -d /opt/gradle gradle-8.5-bin.zip
+        echo "GRADLE_HOME=/opt/gradle/gradle-8.5" >> $GITHUB_ENV
+        echo "/opt/gradle/gradle-8.5/bin" >> $GITHUB_PATH
+
+    - name: Construir APK de PayMirror
       run: gradle assembleDebug --stacktrace
