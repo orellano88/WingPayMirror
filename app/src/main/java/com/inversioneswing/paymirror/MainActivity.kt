@@ -10,6 +10,7 @@ import android.graphics.BitmapFactory
 import android.graphics.Color
 import android.media.MediaPlayer
 import android.media.RingtoneManager
+import android.net.Uri
 import android.os.*
 import android.provider.MediaStore
 import android.provider.Settings
@@ -56,7 +57,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private val activityJob = SupervisorJob()
     private val activityScope = CoroutineScope(Dispatchers.Main + activityJob)
 
-    // MOTOR DE CÁMARA BLINDADO (v38.0)
     private val cameraLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
         try {
             if (res.resultCode == Activity.RESULT_OK) {
@@ -69,68 +69,56 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     vibrate(100)
                 }
             }
-        } catch (e: Exception) {
-            Toast.makeText(this, "Error de Cámara: ${e.message}", Toast.LENGTH_SHORT).show()
-        }
-    }
-
-    private val qrScanner = registerForActivityResult(ScanContract()) { res ->
-        if (res.contents != null) {
-            neuralId = res.contents
-            prefs.edit().putString("NEURAL_ID", neuralId).apply()
-            updateUIState(); restartSync()
-        }
+        } catch (e: Exception) { Toast.makeText(this, "Cámara Error", Toast.LENGTH_SHORT).show() }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
+        
         val myId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
         neuralId = prefs.getString("NEURAL_ID", myId) ?: myId
-        setupUI(); startNeuralSync()
+        
+        setupUI()
+        startNeuralSync()
+        requestImmortality() // BYPASS BATERÍA
     }
 
     private fun setupUI() {
-        try {
-            tts = TextToSpeech(this, this)
-            recyclerView = findViewById(R.id.recyclerView)
-            recyclerView.layoutManager = LinearLayoutManager(this).apply { stackFromEnd = true }
-            adapter = HiveAdapter(contentList)
-            recyclerView.adapter = adapter
+        tts = TextToSpeech(this, this)
+        recyclerView = findViewById(R.id.recyclerView)
+        recyclerView.layoutManager = LinearLayoutManager(this).apply { stackFromEnd = true }
+        adapter = HiveAdapter(contentList)
+        recyclerView.adapter = adapter
 
-            updateUIState()
+        updateUIState()
 
-            val et = findViewById<EditText>(R.id.etMessage)
-            findViewById<ImageButton>(R.id.btnSend).setOnClickListener {
-                val txt = et.text.toString().trim()
-                if (txt.isNotEmpty()) {
-                    et.setText("") // LIMPIEZA ATÓMICA
-                    sendToHive("MESSAGE", txt)
-                    vibrate(50)
-                }
+        val et = findViewById<EditText>(R.id.etMessage)
+        findViewById<ImageButton>(R.id.btnSend).setOnClickListener {
+            val txt = et.text.toString().trim()
+            if (txt.isNotEmpty()) {
+                et.setText(""); sendToHive("MESSAGE", txt); vibrate(50)
             }
-
-            findViewById<ImageButton>(R.id.btnAttach).setOnClickListener {
-                val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
-                cameraLauncher.launch(intent)
-            }
-
-            findViewById<ImageButton>(R.id.btnPanic).setOnClickListener { triggerGlobalAlert() }
-            findViewById<ImageButton>(R.id.btnQR).setOnClickListener { showQRMenu() }
-        } catch (e: Exception) {
-            Toast.makeText(this, "Fallo Crítico UI: ${e.message}", Toast.LENGTH_LONG).show()
         }
+
+        findViewById<ImageButton>(R.id.btnAttach).setOnClickListener {
+            cameraLauncher.launch(Intent(MediaStore.ACTION_IMAGE_CAPTURE))
+        }
+
+        findViewById<ImageButton>(R.id.btnPanic).setOnClickListener { triggerGlobalAlert() }
+        findViewById<ImageButton>(R.id.btnQR).setOnClickListener { showQRMenu() }
     }
 
-    private fun updateUIState() {
-        val badge = findViewById<TextView>(R.id.tvRoleBadge) ?: return
-        val myId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
-        if (neuralId == myId) {
-            badge.text = "MODO MAESTRO"
-            badge.backgroundTintList = ColorStateList.valueOf(0x33000000)
-        } else {
-            badge.text = "MODO ESPEJO"
-            badge.backgroundTintList = ColorStateList.valueOf(0x33FF0000.toInt())
+    private fun requestImmortality() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            val intent = Intent()
+            val packageName = packageName
+            val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+            if (!pm.isIgnoringBatteryOptimizations(packageName)) {
+                intent.action = Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS
+                intent.data = Uri.parse("package:$packageName")
+                startActivity(intent)
+            }
         }
     }
 
@@ -138,47 +126,43 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         activityScope.launch(Dispatchers.IO) {
             while(isActive) {
                 try { syncData(); syncAlert() } catch (e: Exception) {}
-                delay(3000)
+                delay(5000) // Optimizado: menos frecuencia, más eficiencia
             }
         }
     }
 
     private suspend fun syncData() {
-        try {
-            val json = httpGet("$dbBaseUrl/$neuralId.json?limitToLast=30")
-            if (TextUtils.isEmpty(json) || json == "null") return
-            val root = JSONObject(json)
-            val newList = mutableListOf<Map<String, String>>()
-            root.keys().forEach { key ->
-                val obj = root.optJSONObject(key) ?: return@forEach
-                val map = mutableMapOf<String, String>()
-                obj.keys().forEach { map[it] = obj.optString(it, "") }
-                newList.add(map)
+        val json = httpGet("$dbBaseUrl/$neuralId.json?limitToLast=30")
+        if (TextUtils.isEmpty(json) || json == "null") return
+        val root = JSONObject(json)
+        val newList = mutableListOf<Map<String, String>>()
+        root.keys().forEach { key ->
+            val obj = root.optJSONObject(key) ?: return@forEach
+            val map = mutableMapOf<String, String>()
+            obj.keys().forEach { map[it] = obj.optString(it, "") }
+            newList.add(map)
+        }
+        val sorted = newList.sortedBy { it["timestamp"]?.toLongOrNull() ?: 0L }
+        val currentTag = if (sorted.isNotEmpty()) sorted.last()["timestamp"] + (sorted.last()["content"] ?: "") else ""
+        if (currentTag != lastUpdateTag) {
+            val isFirst = lastUpdateTag == ""
+            lastUpdateTag = currentTag
+            withContext(Dispatchers.Main) {
+                contentList.clear(); contentList.addAll(sorted); adapter.notifyDataSetChanged()
+                if (contentList.isNotEmpty()) recyclerView.scrollToPosition(contentList.size - 1)
+                if (!isFirst && sorted.last()["type"] == "PAYMENT") speakPayment(sorted.last()["nombre"] ?: "Externo", sorted.last()["monto"] ?: "0")
             }
-            val sorted = newList.sortedBy { it["timestamp"]?.toLongOrNull() ?: 0L }
-            val currentTag = if (sorted.isNotEmpty()) sorted.last()["timestamp"] + (sorted.last()["content"] ?: "") else ""
-            if (currentTag != lastUpdateTag) {
-                val isFirst = lastUpdateTag == ""
-                lastUpdateTag = currentTag
-                withContext(Dispatchers.Main) {
-                    contentList.clear(); contentList.addAll(sorted); adapter.notifyDataSetChanged()
-                    if (contentList.isNotEmpty()) recyclerView.scrollToPosition(contentList.size - 1)
-                    if (!isFirst && sorted.last()["type"] == "PAYMENT") speakPayment(sorted.last()["nombre"] ?: "Externo", sorted.last()["monto"] ?: "0")
-                }
-            }
-        } catch(e: Exception) {}
+        }
     }
 
     private suspend fun syncAlert() {
-        try {
-            val json = httpGet("$alertBaseUrl/$neuralId.json")
-            val active = json.contains("ACTIVE")
-            withContext(Dispatchers.Main) {
-                val overlay = findViewById<View>(R.id.alert_overlay) ?: return@withContext
-                if (active && !isAlertActive) { startPanicAlarm(); overlay.visibility = View.VISIBLE }
-                else if (!active && isAlertActive) { stopPanicAlarm(); overlay.visibility = View.GONE }
-            }
-        } catch(e: Exception) {}
+        val json = httpGet("$alertBaseUrl/$neuralId.json")
+        val active = json.contains("ACTIVE")
+        withContext(Dispatchers.Main) {
+            val overlay = findViewById<View>(R.id.alert_overlay) ?: return@withContext
+            if (active && !isAlertActive) { startPanicAlarm(); overlay.visibility = View.VISIBLE }
+            else if (!active && isAlertActive) { stopPanicAlarm(); overlay.visibility = View.GONE }
+        }
     }
 
     private fun triggerGlobalAlert() {
@@ -193,7 +177,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         activityScope.launch(Dispatchers.IO) { httpPost("$dbBaseUrl/$neuralId.json", body.toString()) }
     }
 
-    private fun httpGet(urlStr: String) = try { (URL(urlStr).openConnection() as HttpURLConnection).inputStream.bufferedReader().use { it.readText() } } catch(e: Exception) { "" }
+    private fun httpGet(urlStr: String) = try { (URL(urlStr).openConnection() as HttpURLConnection).apply { connectTimeout=5000 }.inputStream.bufferedReader().use { it.readText() } } catch(e: Exception) { "" }
     private fun httpPost(urlStr: String, data: String) { try { (URL(urlStr).openConnection() as HttpURLConnection).apply { requestMethod="POST"; doOutput=true; setRequestProperty("Content-Type", "application/json"); outputStream.bufferedWriter().use { it.write(data) }; responseCode } } catch(e: Exception) {} }
     private fun httpPut(urlStr: String, data: String) { try { (URL(urlStr).openConnection() as HttpURLConnection).apply { requestMethod="PUT"; doOutput=true; setRequestProperty("Content-Type", "application/json"); outputStream.bufferedWriter().use { it.write(data) }; responseCode } } catch(e: Exception) {} }
 
@@ -210,6 +194,13 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private fun vibrate(ms: Long) {
         val v = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
         if (Build.VERSION.SDK_INT >= 26) v.vibrate(VibrationEffect.createOneShot(ms, VibrationEffect.DEFAULT_AMPLITUDE)) else v.vibrate(ms)
+    }
+
+    private fun updateUIState() {
+        val badge = findViewById<TextView>(R.id.tvRoleBadge) ?: return
+        val myId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
+        badge.text = if (neuralId == myId) "MODO MAESTRO" else "MODO ESPEJO"
+        badge.backgroundTintList = ColorStateList.valueOf(if (neuralId == myId) 0x33000000 else 0x33FF0000.toInt())
     }
 
     private fun showQRMenu() {
@@ -266,8 +257,7 @@ class HiveAdapter(private val list: List<Map<String, String>>) : RecyclerView.Ad
                         holder.ivContent.setImageBitmap(BitmapFactory.decodeByteArray(decoded, 0, decoded.size))
                     } catch (e: Exception) { holder.ivContent.setImageResource(android.R.drawable.ic_menu_gallery) }
                 } else {
-                    holder.ivContent.visibility = View.GONE; holder.tvMessage.visibility = View.VISIBLE
-                    holder.tvMessage.text = content
+                    holder.ivContent.visibility = View.GONE; holder.tvMessage.visibility = View.VISIBLE; holder.tvMessage.text = content
                 }
             }
         } catch (e: Exception) {}
