@@ -10,7 +10,7 @@ class StarkResurrector : BroadcastReceiver() {
         // Ingeniería Inversa MacroDroid: Reiniciar el núcleo al detectar BOOT o cambio de RED
         if (intent.action == Intent.ACTION_BOOT_COMPLETED || intent.action == Intent.ACTION_MY_PACKAGE_REPLACED) {
             val serviceIntent = Intent(context, StarkCaptureService::class.java)
-            if (Build.VERSION.SDK_INT >= Build.VERSION_10) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
                 context.startForegroundService(serviceIntent)
             } else {
                 context.startService(serviceIntent)
