@@ -1,6 +1,7 @@
 package com.inversioneswing.paymirror
 
 import android.Manifest
+import android.app.Activity
 import android.content.*
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
@@ -56,7 +57,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private val activityScope = CoroutineScope(Dispatchers.Main + activityJob)
 
     private val cameraLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
-        if (resultCode == RESULT_OK) sendToHive("IMAGE", "[FOTO CAPTURADA]")
+        if (res.resultCode == Activity.RESULT_OK) sendToHive("IMAGE", "[FOTO CAPTURADA]")
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -143,7 +144,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
         
         val sorted = newList.sortedBy { it["timestamp"]?.toLongOrNull() ?: 0L }
-        val currentTopId = if (sorted.isNotEmpty()) sorted.last()["timestamp"] + sorted.last()["content"] else ""
+        val currentTopId = if (sorted.isNotEmpty()) (sorted.last()["timestamp"] ?: "") + (sorted.last()["content"] ?: "") else ""
 
         if (currentTopId != lastUpdateId) {
             val isFirst = lastUpdateId == ""
