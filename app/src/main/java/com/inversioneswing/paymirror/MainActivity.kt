@@ -3,6 +3,7 @@ package com.inversioneswing.paymirror
 import android.Manifest
 import android.content.*
 import android.content.pm.PackageManager
+import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.media.MediaPlayer
 import android.media.RingtoneManager
@@ -113,10 +114,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         val badge = findViewById<TextView>(R.id.tvRoleBadge)
         if (neuralId == myId) {
             badge.text = "MODO MAESTRO [Activo]"
-            badge.setBackgroundTintList(ColorStateList.valueOf(0x33000000))
+            badge.backgroundTintList = ColorStateList.valueOf(0x33000000)
         } else {
             badge.text = "MODO ESPEJO [Link: ${neuralId.take(6)}]"
-            badge.setBackgroundTintList(ColorStateList.valueOf(0x3300F3FF.toInt()))
+            badge.backgroundTintList = ColorStateList.valueOf(0x3300F3FF.toInt())
         }
     }
 
@@ -159,7 +160,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 try {
                     val syncSuccess = syncData()
                     val alertSuccess = syncAlert()
-                    
                     backoff = if (syncSuccess && alertSuccess) 3000L else (backoff * 2).coerceAtMost(20000L)
                 } catch (e: Exception) {
                     backoff = (backoff * 2).coerceAtMost(20000L)
