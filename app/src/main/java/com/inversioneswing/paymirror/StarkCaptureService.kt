@@ -3,11 +3,10 @@ package com.inversioneswing.paymirror
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.app.Notification
-import okhttp3.MediaType.Companion.toMediaType
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import okhttp3.RequestBody.Companion.toRequestBody
-import com.google.gson.Gson
+import org.json.JSONObject
+import java.io.OutputStreamWriter
+import java.net.HttpURLConnection
+import java.net.URL
 import java.util.regex.Pattern
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
@@ -15,7 +14,6 @@ import kotlinx.coroutines.launch
 
 class StarkCaptureService : NotificationListenerService() {
 
-    private val client = OkHttpClient()
     private val dbUrl = "https://wingpaymirror-default-rtdb.firebaseio.com/pagos.json"
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
@@ -39,18 +37,34 @@ class StarkCaptureService : NotificationListenerService() {
                                 .replace("¡Yapeaste!", "")
                                 .replace("te envió", "").trim()
 
-            val data = mapOf(
-                "nombre" to nombre,
-                "monto" to monto,
-                "timestamp" to System.currentTimeMillis(),
-                "banco" to if(pkg.contains("innova")) "YAPE" else "BCP"
-            )
+            val jsonBody = JSONObject().apply {
+                put("nombre", nombre)
+                put("monto", monto)
+                put("timestamp", System.currentTimeMillis())
+                put("banco", if(pkg.contains("innova")) "YAPE" else "BCP")
+            }
 
-            // Enviar a la nube vía REST (Protocolo Stark Independiente)
+            // Enviar a la nube vía REST Nativo (Protocolo Stark Independiente)
             CoroutineScope(Dispatchers.IO).launch {
-                val body = Gson().toJson(data).toRequestBody("application/json".toMediaType())
-                val request = Request.Builder().url(dbUrl).post(body).build()
-                client.newCall(request).execute()
+                try {
+                    val connection = URL(dbUrl).openConnection() as HttpURLConnection
+                    connection.requestMethod = "POST"
+                    connection.doOutput = true
+                    connection.setRequestProperty("Content-Type", "application/json")
+                    connection.connectTimeout = 10000
+                    connection.readTimeout = 10000
+
+                    OutputStreamWriter(connection.outputStream).use { 
+                        it.write(jsonBody.toString())
+                        it.flush()
+                    }
+
+                    val responseCode = connection.responseCode
+                    // Opcional: Log responseCode para debug
+                    connection.disconnect()
+                } catch (e: Exception) {
+                    // Re-intento silencioso en caso de falla de red
+                }
             }
         }
     }
