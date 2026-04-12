@@ -56,17 +56,21 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private val activityJob = SupervisorJob()
     private val activityScope = CoroutineScope(Dispatchers.Main + activityJob)
 
-    // MOTOR DE CÁMARA REAL (Base64) - v37.9
+    // MOTOR DE CÁMARA BLINDADO (v38.0)
     private val cameraLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
-        if (res.resultCode == Activity.RESULT_OK) {
-            val bitmap = res.data?.extras?.get("data") as? Bitmap
-            if (bitmap != null) {
-                val stream = ByteArrayOutputStream()
-                bitmap.compress(Bitmap.CompressFormat.JPEG, 80, stream)
-                val base64 = Base64.encodeToString(stream.toByteArray(), Base64.DEFAULT)
-                sendToHive("IMAGE", base64)
-                vibrate(100)
+        try {
+            if (res.resultCode == Activity.RESULT_OK) {
+                val data = res.data?.extras?.get("data") as? Bitmap
+                if (data != null) {
+                    val stream = ByteArrayOutputStream()
+                    data.compress(Bitmap.CompressFormat.JPEG, 70, stream)
+                    val base64 = Base64.encodeToString(stream.toByteArray(), Base64.DEFAULT)
+                    sendToHive("IMAGE", base64)
+                    vibrate(100)
+                }
             }
+        } catch (e: Exception) {
+            Toast.makeText(this, "Error de Cámara: ${e.message}", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -75,7 +79,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             neuralId = res.contents
             prefs.edit().putString("NEURAL_ID", neuralId).apply()
             updateUIState(); restartSync()
-            Toast.makeText(this, "Neural Link OK", Toast.LENGTH_SHORT).show()
         }
     }
 
@@ -88,31 +91,35 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun setupUI() {
-        tts = TextToSpeech(this, this)
-        recyclerView = findViewById(R.id.recyclerView)
-        recyclerView.layoutManager = LinearLayoutManager(this).apply { stackFromEnd = true }
-        adapter = HiveAdapter(contentList)
-        recyclerView.adapter = adapter
+        try {
+            tts = TextToSpeech(this, this)
+            recyclerView = findViewById(R.id.recyclerView)
+            recyclerView.layoutManager = LinearLayoutManager(this).apply { stackFromEnd = true }
+            adapter = HiveAdapter(contentList)
+            recyclerView.adapter = adapter
 
-        updateUIState()
+            updateUIState()
 
-        val et = findViewById<EditText>(R.id.etMessage)
-        findViewById<ImageButton>(R.id.btnSend).setOnClickListener {
-            val txt = et.text.toString().trim()
-            if (txt.isNotEmpty()) {
-                et.setText("") // LIMPIEZA ATÓMICA
-                sendToHive("MESSAGE", txt)
-                vibrate(50)
+            val et = findViewById<EditText>(R.id.etMessage)
+            findViewById<ImageButton>(R.id.btnSend).setOnClickListener {
+                val txt = et.text.toString().trim()
+                if (txt.isNotEmpty()) {
+                    et.setText("") // LIMPIEZA ATÓMICA
+                    sendToHive("MESSAGE", txt)
+                    vibrate(50)
+                }
             }
-        }
 
-        findViewById<ImageButton>(R.id.btnAttach).setOnClickListener {
-            val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
-            cameraLauncher.launch(intent)
-        }
+            findViewById<ImageButton>(R.id.btnAttach).setOnClickListener {
+                val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
+                cameraLauncher.launch(intent)
+            }
 
-        findViewById<ImageButton>(R.id.btnPanic).setOnClickListener { triggerGlobalAlert() }
-        findViewById<ImageButton>(R.id.btnQR).setOnClickListener { showQRMenu() }
+            findViewById<ImageButton>(R.id.btnPanic).setOnClickListener { triggerGlobalAlert() }
+            findViewById<ImageButton>(R.id.btnQR).setOnClickListener { showQRMenu() }
+        } catch (e: Exception) {
+            Toast.makeText(this, "Fallo Crítico UI: ${e.message}", Toast.LENGTH_LONG).show()
+        }
     }
 
     private fun updateUIState() {
@@ -137,37 +144,41 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private suspend fun syncData() {
-        val json = httpGet("$dbBaseUrl/$neuralId.json?limitToLast=30")
-        if (TextUtils.isEmpty(json) || json == "null") return
-        val root = JSONObject(json)
-        val newList = mutableListOf<Map<String, String>>()
-        root.keys().forEach { key ->
-            val obj = root.optJSONObject(key) ?: return@forEach
-            val map = mutableMapOf<String, String>()
-            obj.keys().forEach { map[it] = obj.optString(it, "") }
-            newList.add(map)
-        }
-        val sorted = newList.sortedBy { it["timestamp"]?.toLongOrNull() ?: 0L }
-        val currentTag = if (sorted.isNotEmpty()) sorted.last()["timestamp"] + sorted.last()["content"] else ""
-        if (currentTag != lastUpdateTag) {
-            val isFirst = lastUpdateTag == ""
-            lastUpdateTag = currentTag
-            withContext(Dispatchers.Main) {
-                contentList.clear(); contentList.addAll(sorted); adapter.notifyDataSetChanged()
-                if (contentList.isNotEmpty()) recyclerView.scrollToPosition(contentList.size - 1)
-                if (!isFirst && sorted.last()["type"] == "PAYMENT") speakPayment(sorted.last()["nombre"] ?: "Externo", sorted.last()["monto"] ?: "0")
+        try {
+            val json = httpGet("$dbBaseUrl/$neuralId.json?limitToLast=30")
+            if (TextUtils.isEmpty(json) || json == "null") return
+            val root = JSONObject(json)
+            val newList = mutableListOf<Map<String, String>>()
+            root.keys().forEach { key ->
+                val obj = root.optJSONObject(key) ?: return@forEach
+                val map = mutableMapOf<String, String>()
+                obj.keys().forEach { map[it] = obj.optString(it, "") }
+                newList.add(map)
             }
-        }
+            val sorted = newList.sortedBy { it["timestamp"]?.toLongOrNull() ?: 0L }
+            val currentTag = if (sorted.isNotEmpty()) sorted.last()["timestamp"] + (sorted.last()["content"] ?: "") else ""
+            if (currentTag != lastUpdateTag) {
+                val isFirst = lastUpdateTag == ""
+                lastUpdateTag = currentTag
+                withContext(Dispatchers.Main) {
+                    contentList.clear(); contentList.addAll(sorted); adapter.notifyDataSetChanged()
+                    if (contentList.isNotEmpty()) recyclerView.scrollToPosition(contentList.size - 1)
+                    if (!isFirst && sorted.last()["type"] == "PAYMENT") speakPayment(sorted.last()["nombre"] ?: "Externo", sorted.last()["monto"] ?: "0")
+                }
+            }
+        } catch(e: Exception) {}
     }
 
     private suspend fun syncAlert() {
-        val json = httpGet("$alertBaseUrl/$neuralId.json")
-        val active = json.contains("ACTIVE")
-        withContext(Dispatchers.Main) {
-            val overlay = findViewById<View>(R.id.alert_overlay) ?: return@withContext
-            if (active && !isAlertActive) { startPanicAlarm(); overlay.visibility = View.VISIBLE }
-            else if (!active && isAlertActive) { stopPanicAlarm(); overlay.visibility = View.GONE }
-        }
+        try {
+            val json = httpGet("$alertBaseUrl/$neuralId.json")
+            val active = json.contains("ACTIVE")
+            withContext(Dispatchers.Main) {
+                val overlay = findViewById<View>(R.id.alert_overlay) ?: return@withContext
+                if (active && !isAlertActive) { startPanicAlarm(); overlay.visibility = View.VISIBLE }
+                else if (!active && isAlertActive) { stopPanicAlarm(); overlay.visibility = View.GONE }
+            }
+        } catch(e: Exception) {}
     }
 
     private fun triggerGlobalAlert() {
@@ -233,30 +244,33 @@ class HiveAdapter(private val list: List<Map<String, String>>) : RecyclerView.Ad
         else MessageViewHolder(inf.inflate(R.layout.item_message, parent, false))
     }
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, pos: Int) {
-        val d = list[pos]; val time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(d["timestamp"]?.toLongOrNull() ?: 0L))
-        val user = d["user"] ?: "SISTEMA"
-        val isMe = user == "SISTEMA" || user == Build.MODEL
-        
-        if (holder is PaymentViewHolder) {
-            holder.tvNombre.text = d["nombre"]; holder.tvMonto.text = "S/ ${d["monto"]}"; holder.tvBanco.text = "${d["banco"]} • $time"
-            holder.llBubble.gravity = if (isMe) Gravity.END else Gravity.START
-            holder.llBubble.backgroundTintList = ColorStateList.valueOf(Color.parseColor(if (isMe) "#E1FFC7" else "#FFFFFF"))
-        } else if (holder is MessageViewHolder) {
-            holder.tvUser.text = user; holder.tvTime.text = time
-            holder.llBubble.gravity = if (isMe) Gravity.END else Gravity.START
-            holder.llBubble.backgroundTintList = ColorStateList.valueOf(Color.parseColor(if (isMe) "#E1FFC7" else "#FFFFFF"))
+        try {
+            val d = list[pos]; val time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(d["timestamp"]?.toLongOrNull() ?: 0L))
+            val user = d["user"] ?: "SISTEMA"
+            val isMe = user == "SISTEMA" || user == Build.MODEL
+            
+            if (holder is PaymentViewHolder) {
+                holder.tvNombre.text = d["nombre"]; holder.tvMonto.text = "S/ ${d["monto"]}"; holder.tvBanco.text = "${d["banco"]} • $time"
+                holder.llBubble.gravity = if (isMe) Gravity.END else Gravity.START
+                holder.llBubble.backgroundTintList = ColorStateList.valueOf(Color.parseColor(if (isMe) "#E1FFC7" else "#FFFFFF"))
+            } else if (holder is MessageViewHolder) {
+                holder.tvUser.text = user; holder.tvTime.text = time
+                holder.llBubble.gravity = if (isMe) Gravity.END else Gravity.START
+                holder.llBubble.backgroundTintList = ColorStateList.valueOf(Color.parseColor(if (isMe) "#E1FFC7" else "#FFFFFF"))
 
-            val content = d["content"] ?: ""
-            if (d["type"] == "IMAGE") {
-                holder.tvMessage.visibility = View.GONE; holder.ivContent.visibility = View.VISIBLE
-                try {
-                    val decoded = Base64.decode(content, Base64.DEFAULT)
-                    holder.ivContent.setImageBitmap(BitmapFactory.decodeByteArray(decoded, 0, decoded.size))
-                } catch (e: Exception) { holder.ivContent.setImageResource(android.R.drawable.ic_menu_gallery) }
-            } else {
-                holder.ivContent.visibility = View.GONE; holder.tvMessage.visibility = View.VISIBLE; holder.tvMessage.text = content
+                val content = d["content"] ?: ""
+                if (d["type"] == "IMAGE") {
+                    holder.tvMessage.visibility = View.GONE; holder.ivContent.visibility = View.VISIBLE
+                    try {
+                        val decoded = Base64.decode(content, Base64.DEFAULT)
+                        holder.ivContent.setImageBitmap(BitmapFactory.decodeByteArray(decoded, 0, decoded.size))
+                    } catch (e: Exception) { holder.ivContent.setImageResource(android.R.drawable.ic_menu_gallery) }
+                } else {
+                    holder.ivContent.visibility = View.GONE; holder.tvMessage.visibility = View.VISIBLE
+                    holder.tvMessage.text = content
+                }
             }
-        }
+        } catch (e: Exception) {}
     }
     override fun getItemCount() = list.size
     class PaymentViewHolder(v: View) : RecyclerView.ViewHolder(v) {
