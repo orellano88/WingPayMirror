@@ -17,17 +17,17 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
-import okhttp3.OkHttpClient
-import okhttp3.Request
-import com.google.gson.Gson
-import com.google.gson.reflect.TypeToken
 import kotlinx.coroutines.delay
+import java.io.BufferedReader
+import java.io.InputStreamReader
+import java.net.HttpURLConnection
+import java.net.URL
+import org.json.JSONObject
 import java.util.*
 
 class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     private lateinit var tts: TextToSpeech
     private var isTtsReady = false
-    private val client = OkHttpClient()
     private val dbUrl = "https://wingpaymirror-default-rtdb.firebaseio.com/pagos.json?orderBy=\"timestamp\"&limitToLast=20"
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -41,21 +41,46 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
             LaunchedEffect(Unit) {
                 while(true) {
                     try {
-                        val request = Request.Builder().url(dbUrl).build()
-                        val response = client.newCall(request).execute()
-                        val json = response.body?.string() ?: ""
-                        val type = object : TypeToken<Map<String, Map<String, String>>>() {}.type
-                        val data: Map<String, Map<String, String>> = Gson().fromJson(json, type) ?: emptyMap()
-                        val sortedPayments = data.values.sortedByDescending { it["timestamp"] }
-                        
-                        if (sortedPayments.isNotEmpty() && sortedPayments[0]["timestamp"] != lastId) {
-                            paymentList.clear()
-                            paymentList.addAll(sortedPayments)
-                            val newOne = sortedPayments[0]
-                            lastId = newOne["timestamp"] ?: ""
-                            speakPayment(newOne["nombre"] ?: "Externo", newOne["monto"] ?: "0")
+                        val connection = URL(dbUrl).openConnection() as HttpURLConnection
+                        connection.requestMethod = "GET"
+                        connection.connectTimeout = 10000
+                        connection.readTimeout = 10000
+                        val json = try {
+                            BufferedReader(InputStreamReader(connection.inputStream)).use { it.readText() }
+                        } finally {
+                            connection.disconnect()
                         }
-                    } catch (e: Exception) { }
+
+                        if (json.isNotEmpty() && json != "null") {
+                            val root = JSONObject(json)
+                            val keys = root.keys()
+                            val allPayments = mutableListOf<Map<String, String>>()
+
+                            while (keys.hasNext()) {
+                                val key = keys.next()
+                                val obj = root.getJSONObject(key)
+                                val map = mutableMapOf<String, String>()
+                                val innerKeys = obj.keys()
+                                while (innerKeys.hasNext()) {
+                                    val k = innerKeys.next()
+                                    map[k] = obj.optString(k, "")
+                                }
+                                allPayments.add(map)
+                            }
+
+                            val sortedPayments = allPayments.sortedByDescending { it["timestamp"] }
+
+                            if (sortedPayments.isNotEmpty() && sortedPayments[0]["timestamp"] != lastId) {
+                                paymentList.clear()
+                                paymentList.addAll(sortedPayments)
+                                val newOne = sortedPayments[0]
+                                lastId = newOne["timestamp"] ?: ""
+                                speakPayment(newOne["nombre"] ?: "Externo", newOne["monto"] ?: "0")
+                            }
+                        }
+                    } catch (e: Exception) {
+                        // Silently ignore network errors and retry
+                    }
                     delay(3000)
                 }
             }
