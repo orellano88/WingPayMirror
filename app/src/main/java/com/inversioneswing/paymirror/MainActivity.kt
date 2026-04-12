@@ -8,6 +8,7 @@ import android.graphics.Bitmap
 import android.media.MediaPlayer
 import android.media.RingtoneManager
 import android.os.*
+import android.provider.MediaStore
 import android.provider.Settings
 import android.speech.tts.TextToSpeech
 import android.text.TextUtils
@@ -41,7 +42,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private lateinit var recyclerView: RecyclerView
     private lateinit var adapter: HiveAdapter
     private val contentList = mutableListOf<Map<String, String>>()
-    private var lastId = ""
+    private var lastUpdateId = ""
     private var isAlertActive = false
     private var mediaPlayer: MediaPlayer? = null
     
@@ -54,10 +55,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private val activityJob = SupervisorJob()
     private val activityScope = CoroutineScope(Dispatchers.Main + activityJob)
 
-    private val qrScanner = registerForActivityResult(ScanContract()) { result ->
-        if (result.contents != null) {
-            validateAndSaveLink(result.contents)
-        }
+    private val cameraLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
+        if (resultCode == RESULT_OK) sendToHive("IMAGE", "[FOTO CAPTURADA]")
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -74,20 +73,6 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         neuralId = prefs.getString("NEURAL_ID", myId) ?: myId
     }
 
-    private fun validateAndSaveLink(id: String) {
-        val trimmed = id.trim()
-        if (trimmed.length >= 12) {
-            neuralId = trimmed
-            prefs.edit().putString("NEURAL_ID", trimmed).apply()
-            vibrate(200)
-            Toast.makeText(this, "Enlace Neuronal Sincronizado", Toast.LENGTH_SHORT).show()
-            updateUIState()
-            restartSync()
-        } else {
-            Toast.makeText(this, "ID de Enlace Inválido", Toast.LENGTH_SHORT).show()
-        }
-    }
-
     private fun setupUI() {
         tts = TextToSpeech(this, this)
         recyclerView = findViewById(R.id.recyclerView)
@@ -97,8 +82,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         updateUIState()
 
+        val et = findViewById<EditText>(R.id.etMessage)
         findViewById<ImageButton>(R.id.btnSend).setOnClickListener {
-            val et = findViewById<EditText>(R.id.etMessage)
             if (et.text.isNotEmpty()) {
                 sendToHive("MESSAGE", et.text.toString())
                 et.text.clear()
@@ -107,71 +92,46 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         findViewById<ImageButton>(R.id.btnPanic).setOnClickListener { triggerGlobalAlert() }
         findViewById<ImageButton>(R.id.btnQR).setOnClickListener { showQRMenu() }
+        
+        findViewById<ImageButton>(R.id.btnAttach).setOnClickListener {
+            val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
+            cameraLauncher.launch(intent)
+        }
+
+        findViewById<ImageButton>(R.id.btnAudio).setOnClickListener {
+            sendToHive("AUDIO", "[NOTA DE VOZ]")
+            vibrate(100)
+            Toast.makeText(this, "Micrófono Stark Activado", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun updateUIState() {
-        val myId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
         val badge = findViewById<TextView>(R.id.tvRoleBadge)
+        val myId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
         if (neuralId == myId) {
-            badge.text = "MODO MAESTRO [Activo]"
+            badge.text = "MODO MAESTRO"
             badge.backgroundTintList = ColorStateList.valueOf(0x33000000)
         } else {
-            badge.text = "MODO ESPEJO [Link: ${neuralId.take(6)}]"
+            badge.text = "MODO ESPEJO [Link: ${neuralId.take(5)}]"
             badge.backgroundTintList = ColorStateList.valueOf(0x3300F3FF.toInt())
         }
     }
 
-    private fun showQRMenu() {
-        val options = arrayOf("Generar Mi QR (Maestro)", "Escanear QR (Espejo)", "Restablecer Conexión")
-        AlertDialog.Builder(this)
-            .setTitle("ENLACE NEURONAL")
-            .setItems(options) { _, which ->
-                when (options[which]) {
-                    "Generar Mi QR (Maestro)" -> showMyQR()
-                    "Escanear QR (Espejo)" -> qrScanner.launch(ScanOptions().setPrompt("Apunta al QR Maestro"))
-                    "Restablecer Conexión" -> {
-                        val myId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
-                        validateAndSaveLink(myId)
-                    }
-                }
-            }.show()
-    }
-
-    private fun showMyQR() {
-        try {
-            val myId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
-            val matrix = MultiFormatWriter().encode(myId, BarcodeFormat.QR_CODE, 500, 500)
-            val bitmap = BarcodeEncoder().createBitmap(matrix)
-            val iv = ImageView(this).apply { setImageBitmap(bitmap); setPadding(50, 50, 50, 50) }
-            AlertDialog.Builder(this).setTitle("Código de Enlace").setView(iv).setPositiveButton("Listo", null).show()
-        } catch (e: Exception) {}
-    }
-
-    private fun restartSync() {
-        contentList.clear()
-        adapter.notifyDataSetChanged()
-        lastId = ""
-    }
-
     private fun startNeuralSync() {
         activityScope.launch(Dispatchers.IO) {
-            var backoff = 3000L
             while(isActive) {
                 try {
-                    val syncSuccess = syncData()
-                    val alertSuccess = syncAlert()
-                    backoff = if (syncSuccess && alertSuccess) 3000L else (backoff * 2).coerceAtMost(20000L)
-                } catch (e: Exception) {
-                    backoff = (backoff * 2).coerceAtMost(20000L)
-                }
-                delay(backoff)
+                    syncData()
+                    syncAlert()
+                } catch (e: Exception) {}
+                delay(3000)
             }
         }
     }
 
-    private suspend fun syncData(): Boolean {
-        val json = httpGet("$dbBaseUrl/$neuralId.json?limitToLast=30")
-        if (TextUtils.isEmpty(json) || json == "null") return true
+    private suspend fun syncData() {
+        val json = httpGet("$dbBaseUrl/$neuralId.json?limitToLast=25")
+        if (TextUtils.isEmpty(json) || json == "null") return
         
         val root = JSONObject(json)
         val newList = mutableListOf<Map<String, String>>()
@@ -183,43 +143,35 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
         
         val sorted = newList.sortedBy { it["timestamp"]?.toLongOrNull() ?: 0L }
-        
-        withContext(Dispatchers.Main) {
-            if (sorted.isNotEmpty() && sorted.last()["timestamp"] != lastId) {
-                val isFirst = lastId == ""
-                lastId = sorted.last()["timestamp"] ?: ""
+        val currentTopId = if (sorted.isNotEmpty()) sorted.last()["timestamp"] + sorted.last()["content"] else ""
+
+        if (currentTopId != lastUpdateId) {
+            val isFirst = lastUpdateId == ""
+            lastUpdateId = currentTopId
+            withContext(Dispatchers.Main) {
                 contentList.clear(); contentList.addAll(sorted)
                 adapter.notifyDataSetChanged()
-                recyclerView.smoothScrollToPosition(contentList.size - 1)
+                recyclerView.scrollToPosition(contentList.size - 1)
                 if (!isFirst && sorted.last()["type"] == "PAYMENT") {
                     speakPayment(sorted.last()["nombre"] ?: "Externo", sorted.last()["monto"] ?: "0")
                 }
             }
         }
-        return true
     }
 
-    private suspend fun syncAlert(): Boolean {
+    private suspend fun syncAlert() {
         val json = httpGet("$alertBaseUrl/$neuralId.json")
+        val active = json.contains("ACTIVE")
         withContext(Dispatchers.Main) {
-            val isActive = json.contains("ACTIVE")
             val overlay = findViewById<View>(R.id.alert_overlay)
-            if (isActive && !isAlertActive) {
-                startPanicAlarm()
-                overlay.visibility = View.VISIBLE
-            } else if (!isActive && isAlertActive) {
-                stopPanicAlarm()
-                overlay.visibility = View.GONE
-            }
+            if (active && !isAlertActive) { startPanicAlarm(); overlay.visibility = View.VISIBLE }
+            else if (!active && isAlertActive) { stopPanicAlarm(); overlay.visibility = View.GONE }
         }
-        return true
     }
 
     private fun triggerGlobalAlert() {
         val next = if (isAlertActive) "IDLE" else "ACTIVE"
-        activityScope.launch(Dispatchers.IO) {
-            httpPut("$alertBaseUrl/$neuralId.json", JSONObject().put("status", next).toString())
-        }
+        activityScope.launch(Dispatchers.IO) { httpPut("$alertBaseUrl/$neuralId.json", JSONObject().put("status", next).toString()) }
     }
 
     private fun sendToHive(type: String, content: String) {
@@ -232,28 +184,22 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     private fun httpGet(urlStr: String): String {
         val conn = URL(urlStr).openConnection() as HttpURLConnection
-        return try { conn.connectTimeout = 8000; conn.readTimeout = 8000
-            if (conn.responseCode == 200) BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() } else ""
-        } catch (e: Exception) { "" } finally { conn.disconnect() }
+        return try { conn.connectTimeout = 5000; BufferedReader(InputStreamReader(conn.inputStream)).use { it.readText() } } 
+        catch (e: Exception) { "" } finally { conn.disconnect() }
     }
 
     private fun httpPost(urlStr: String, data: String) {
         val conn = URL(urlStr).openConnection() as HttpURLConnection
         try { conn.requestMethod = "POST"; conn.doOutput = true; conn.setRequestProperty("Content-Type", "application/json")
             OutputStreamWriter(conn.outputStream).use { it.write(data); it.flush() }; conn.responseCode
-        } catch (e: Exception) {} finally { conn.disconnect() }
+        } finally { conn.disconnect() }
     }
 
     private fun httpPut(urlStr: String, data: String) {
         val conn = URL(urlStr).openConnection() as HttpURLConnection
         try { conn.requestMethod = "PUT"; conn.doOutput = true; conn.setRequestProperty("Content-Type", "application/json")
             OutputStreamWriter(conn.outputStream).use { it.write(data); it.flush() }; conn.responseCode
-        } catch (e: Exception) {} finally { conn.disconnect() }
-    }
-
-    private fun vibrate(ms: Long) {
-        val v = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-        if (Build.VERSION.SDK_INT >= 26) v.vibrate(VibrationEffect.createOneShot(ms, VibrationEffect.DEFAULT_AMPLITUDE)) else v.vibrate(ms)
+        } finally { conn.disconnect() }
     }
 
     private fun startPanicAlarm() {
@@ -268,6 +214,31 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         (getSystemService(Context.VIBRATOR_SERVICE) as Vibrator).cancel()
     }
 
+    private fun vibrate(ms: Long) {
+        val v = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        if (Build.VERSION.SDK_INT >= 26) v.vibrate(VibrationEffect.createOneShot(ms, VibrationEffect.DEFAULT_AMPLITUDE)) else v.vibrate(ms)
+    }
+
+    private fun showQRMenu() {
+        val opt = arrayOf("Mi QR Maestro", "Escanear Espejo", "Reiniciar")
+        AlertDialog.Builder(this).setItems(opt) { _, i ->
+            when(i) {
+                0 -> showMyQR()
+                1 -> qrScanner.launch(ScanOptions().setPrompt("Escanea el QR Maestro"))
+                2 -> { prefs.edit().clear().apply(); loadNeuralLink(); updateUIState(); restartSync() }
+            }
+        }.show()
+    }
+
+    private fun showMyQR() {
+        val myId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
+        val matrix = MultiFormatWriter().encode(myId, BarcodeFormat.QR_CODE, 500, 500)
+        val iv = ImageView(this).apply { setImageBitmap(BarcodeEncoder().createBitmap(matrix)); setPadding(40,40,40,40) }
+        AlertDialog.Builder(this).setTitle("ID Maestro").setView(iv).show()
+    }
+
+    private fun restartSync() { contentList.clear(); adapter.notifyDataSetChanged(); lastUpdateId = "" }
+    private val qrScanner = registerForActivityResult(ScanContract()) { if(it.contents != null) { prefs.edit().putString("NEURAL_ID", it.contents).apply(); loadNeuralLink(); updateUIState(); restartSync() } }
     private fun speakPayment(n: String, m: String) { if (isTtsReady) tts.speak("Pago de $n por $m soles", TextToSpeech.QUEUE_FLUSH, null, null) }
     override fun onInit(s: Int) { if (s == TextToSpeech.SUCCESS) { tts.language = Locale("es", "ES"); isTtsReady = true } }
     override fun onDestroy() { activityJob.cancel(); stopPanicAlarm(); super.onDestroy() }

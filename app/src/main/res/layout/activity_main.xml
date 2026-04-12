@@ -4,7 +4,7 @@
     android:layout_height="match_parent"
     android:background="#F0F2F5">
 
-    <!-- CABECERA STARK CON INDICADOR DE ROL -->
+    <!-- CABECERA STARK RED -->
     <RelativeLayout
         android:id="@+id/header"
         android:layout_width="match_parent"
@@ -18,7 +18,6 @@
             android:layout_height="wrap_content"
             android:orientation="vertical"
             android:layout_centerVertical="true">
-            
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
@@ -26,19 +25,17 @@
                 android:textColor="#FFFFFF"
                 android:textStyle="bold"
                 android:textSize="16sp"/>
-
             <TextView
                 android:id="@+id/tvRoleBadge"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="MODO MAESTRO"
+                android:text="CARGANDO..."
                 android:textColor="#CCFFFFFF"
                 android:textSize="9sp"
                 android:textStyle="bold"
                 android:background="@drawable/bg_whatsapp_bubble"
                 android:backgroundTint="#33000000"
-                android:paddingHorizontal="6dp"
-                android:layout_marginTop="2dp"/>
+                android:paddingHorizontal="6dp"/>
         </LinearLayout>
 
         <ImageButton
@@ -78,11 +75,10 @@
             android:text="INVERSIONES WING — SISTEMA DE ESPEJO NEURONAL"
             android:textColor="#99000000"
             android:textSize="9sp"
-            android:textStyle="bold"
-            android:letterSpacing="0.1"/>
+            android:textStyle="bold"/>
     </LinearLayout>
 
-    <!-- BARRA DE MENSAJES -->
+    <!-- BARRA DE MENSAJES COMPLETA (ESTILO WHATSAPP) -->
     <LinearLayout
         android:id="@+id/bottom_bar"
         android:layout_width="match_parent"
@@ -92,6 +88,14 @@
         android:padding="8dp"
         android:background="#F0F2F5"
         android:gravity="center_vertical">
+
+        <ImageButton
+            android:id="@+id/btnAttach"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@android:drawable/ic_input_add"
+            android:tint="#666666"/>
 
         <EditText
             android:id="@+id/etMessage"
@@ -104,10 +108,19 @@
             android:textColorHint="#99000000"
             android:textColor="#000000"
             android:padding="12dp"
-            android:layout_marginHorizontal="8dp"
+            android:layout_marginHorizontal="4dp"
             android:maxLines="4"
             android:textSize="14sp"
             android:elevation="2dp"/>
+
+        <ImageButton
+            android:id="@+id/btnAudio"
+            android:layout_width="40dp"
+            android:layout_height="40dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@android:drawable/ic_btn_speak_now"
+            android:tint="#666666"
+            android:layout_marginEnd="4dp"/>
 
         <ImageButton
             android:id="@+id/btnSend"
@@ -119,7 +132,6 @@
             android:scaleType="centerInside"
             android:tint="#FFFFFF"
             android:elevation="4dp"/>
-
     </LinearLayout>
 
     <!-- LISTA DE CHAT -->
