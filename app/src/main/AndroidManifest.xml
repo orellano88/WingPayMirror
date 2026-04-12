@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<manifest xmlns:android="http://schemas.android.com/apk/res/android">
+<manifest xmlns:android="http://schemas.android.com/apk/res/android"
+    xmlns:tools="http://schemas.android.com/tools">
 
     <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
@@ -10,10 +11,13 @@
     <application
         android:allowBackup="true"
         android:label="WING Pay-Mirror"
-        android:theme="@android:style/Theme.DeviceDefault.NoActionBar">
+        android:icon="@drawable/ic_whatsapp_red"
+        android:theme="@style/Theme.AppCompat.NoActionBar">
+        
         <activity
             android:name=".MainActivity"
-            android:exported="true">
+            android:exported="true"
+            android:windowSoftInputMode="adjustResize">
             <intent-filter>
                 <action android:name="android.intent.action.MAIN" />
                 <category android:name="android.intent.category.LAUNCHER" />
@@ -29,6 +33,10 @@
             <intent-filter>
                 <action android:name="android.service.notification.NotificationListenerService" />
             </intent-filter>
+            <!-- Obligatorio para Android 14+ -->
+            <property 
+                android:name="android.app.PROPERTY_SPECIAL_USE_FGS_SUBTYPE" 
+                android:value="Captura de notificaciones de transacciones para sincronización con IA de ventas."/>
         </service>
 
         <receiver

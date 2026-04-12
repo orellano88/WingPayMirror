@@ -14,26 +14,34 @@ import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.regex.Pattern
-import kotlinx.coroutines.CoroutineScope
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.launch
+import kotlinx.coroutines.*
 
 class StarkCaptureService : NotificationListenerService() {
 
     private val dbUrl = "https://wingpaymirror-default-rtdb.firebaseio.com/pagos.json"
     private val statusUrl = "https://wingpaymirror-default-rtdb.firebaseio.com/status.json"
     private val CHANNEL_ID = "WING_CORE_CHANNEL"
+    
+    private val serviceJob = SupervisorJob()
+    private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
+    
+    private val processedNotifications = mutableSetOf<String>() // Para deduplicación simple en memoria
+
+    private val allowedPackages = setOf(
+        "com.viabcp.yape",
+        "com.bcp.innovabcp",
+        "com.viabcp.bcp"
+    )
 
     override fun onCreate() {
         super.onCreate()
         createNotificationChannel()
         startForeground(1, createPersistentNotification())
         
-        // Protocolo Heartbeat para WhatsApp Mini-IAs
-        CoroutineScope(Dispatchers.IO).launch {
-            while(true) {
+        serviceScope.launch {
+            while(isActive) {
                 sendHeartbeat()
-                kotlinx.coroutines.delay(300000) // Cada 5 min
+                delay(300000) // 5 min
             }
         }
     }
@@ -49,40 +57,51 @@ class StarkCaptureService : NotificationListenerService() {
     private fun createPersistentNotification(): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("WING Pay-Mirror Activo")
-            .setContentText("Escaneando flujos de pago Stark...")
+            .setContentText("Sincronización Neuronal Stark en curso...")
             .setSmallIcon(android.R.drawable.ic_menu_compass)
+            .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val pkg = sbn.packageName
-        if (pkg == "com.bcp.innovabcp" || pkg == "com.viabcp.bcp" || pkg.contains("yape")) {
+        if (allowedPackages.contains(pkg) || pkg.contains("yape")) {
             val extras = sbn.notification.extras
+            val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
             val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
             val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString() ?: ""
             
-            processPayment("$text $bigText", pkg)
+            val fullContent = "$title | $text | $bigText"
+            val notificationId = sbn.id.toString() + sbn.postTime.toString() // ID único por notificación
+
+            if (!processedNotifications.contains(notificationId)) {
+                processedNotifications.add(notificationId)
+                if (processedNotifications.size > 100) processedNotifications.remove(processedNotifications.first())
+                
+                processPayment(fullContent, pkg)
+            }
         }
     }
 
     private fun processPayment(content: String, pkg: String) {
-        val regex = Pattern.compile("(S/|S/\\.|S/\\s)(\\d+\\.\\d{2}|\\d+)")
+        val regex = Pattern.compile("S/\\s*([\\d,]+\\.\\d{2}|\\d+)")
         val matcher = regex.matcher(content)
 
         if (matcher.find()) {
-            val monto = matcher.group(2)
-            val nombre = content.replace(matcher.group(0)!!, "")
+            val monto = matcher.group(1)?.replace(",", "") ?: "0.00"
+            val nombre = content.split("|")[0].trim() // Usar el título como posible nombre si es Yape
                                 .replace("¡Yapeaste!", "")
-                                .replace("te envió", "").trim()
+                                .replace("te envió", "")
+                                .replace("Pago recibido de", "").trim()
 
             val jsonBody = JSONObject().apply {
-                put("nombre", nombre)
+                put("nombre", if (nombre.isEmpty()) "Externo" else nombre)
                 put("monto", monto)
                 put("timestamp", System.currentTimeMillis())
-                put("banco", if(pkg.contains("innova") || pkg.contains("yape")) "YAPE" else "BCP")
+                put("banco", if(pkg.contains("yape") || pkg.contains("innova")) "YAPE" else "BCP")
             }
 
-            CoroutineScope(Dispatchers.IO).launch {
+            serviceScope.launch {
                 postToFirebase(dbUrl, jsonBody.toString())
             }
         }
@@ -92,6 +111,7 @@ class StarkCaptureService : NotificationListenerService() {
         val statusBody = JSONObject().apply {
             put("last_active", System.currentTimeMillis())
             put("status", "ONLINE")
+            put("version", "23.0-QWEN-PROTOCOL")
         }
         postToFirebase(statusUrl, statusBody.toString())
     }
@@ -103,6 +123,7 @@ class StarkCaptureService : NotificationListenerService() {
             connection.doOutput = true
             connection.setRequestProperty("Content-Type", "application/json")
             connection.connectTimeout = 10000
+            connection.readTimeout = 10000
             OutputStreamWriter(connection.outputStream).use { 
                 it.write(data)
                 it.flush()
@@ -110,5 +131,10 @@ class StarkCaptureService : NotificationListenerService() {
             connection.responseCode
             connection.disconnect()
         } catch (e: Exception) {}
+    }
+
+    override fun onDestroy() {
+        serviceJob.cancel()
+        super.onDestroy()
     }
 }
