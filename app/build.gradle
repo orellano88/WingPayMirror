@@ -11,8 +11,8 @@ android {
         applicationId "com.inversioneswing.paymirror"
         minSdk 26
         targetSdk 35
-        versionCode 60
-        versionName "6.0-STARK-VICTORY"
+        versionCode 80
+        versionName "8.0-STARK-UNSIGNED"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -20,26 +20,20 @@ android {
         }
     }
 
-    signingConfigs {
-        release {
-            storeFile file(System.getenv("SIGNING_STORE_FILE") ?: "../wingterm.jks")
-            storePassword System.getenv("SIGNING_STORE_PASSWORD") ?: "wingterm2026"
-            keyAlias System.getenv("SIGNING_KEY_ALIAS") ?: "wingterm"
-            keyPassword System.getenv("SIGNING_KEY_PASSWORD") ?: "wingterm2026"
-        }
-    }
-
     buildTypes {
         release {
-            signingConfig signingConfigs.release
             minifyEnabled true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
         debug {
-            signingConfig signingConfigs.release
             minifyEnabled false
         }
     }
+}
+
+repositories {
+    google()
+    mavenCentral()
 }
 
 dependencies {
@@ -51,8 +45,8 @@ dependencies {
     implementation 'androidx.compose.ui:ui-graphics'
     implementation 'androidx.compose.material3:material3'
     
-    // Conexión Web Directa Stark (GSON inyectado internamente si es necesario)
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
+    implementation 'com.google.gson:gson:2.10.1'
 
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
 }
