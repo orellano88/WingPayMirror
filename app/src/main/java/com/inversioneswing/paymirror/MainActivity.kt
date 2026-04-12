@@ -36,6 +36,12 @@ import java.net.URL
 import java.text.SimpleDateFormat
 import java.util.*
 
+import android.graphics.Bitmap
+import android.graphics.BitmapFactory
+import android.graphics.Color
+import android.util.Base64
+import java.io.ByteArrayOutputStream
+
 class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private lateinit var tts: TextToSpeech
     private var isTtsReady = false
@@ -55,11 +61,25 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private val activityJob = SupervisorJob()
     private val activityScope = CoroutineScope(Dispatchers.Main + activityJob)
 
-    // Lanzador de Cámara Seguro
-    private val cameraLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
+    // Lanzador de Archivos (Cámara/Galería) Mejorado
+    private val fileLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
         if (res.resultCode == Activity.RESULT_OK) {
-            sendToHive("IMAGE", "[FOTO ENVIADA]")
-            vibrate(100)
+            val uri = res.data?.data
+            val bmp = if (uri != null) {
+                // De Galería
+                contentResolver.openInputStream(uri)?.use { BitmapFactory.decodeStream(it) }
+            } else {
+                // De Cámara
+                res.data?.extras?.get("data") as? Bitmap
+            }
+            
+            bmp?.let {
+                val stream = ByteArrayOutputStream()
+                it.compress(Bitmap.CompressFormat.JPEG, 50, stream)
+                val base64 = Base64.encodeToString(stream.toByteArray(), Base64.DEFAULT)
+                sendToHive("IMAGE", base64)
+                vibrate(100)
+            }
         }
     }
 
@@ -97,24 +117,29 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         findViewById<ImageButton>(R.id.btnSend).setOnClickListener {
             val txt = et.text.toString().trim()
             if (txt.isNotEmpty()) {
-                // 1. Limpieza INMEDIATA (Solicitud del Usuario)
-                et.setText("") 
+                et.setText("") // 1. Limpieza ATÓMICA e instantánea
                 
-                // 2. Envío en Hilo No Bloqueante (Dispatchers.IO)
                 activityScope.launch(Dispatchers.IO) {
                     sendToHive("MESSAGE", txt)
                 }
                 vibrate(50)
+                
+                // Autoscroll instantáneo tras envío local
+                recyclerView.scrollToPosition(contentList.size - 1)
             }
         }
 
         findViewById<ImageButton>(R.id.btnAttach).setOnClickListener {
-            try {
-                val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
-                cameraLauncher.launch(intent)
-            } catch (e: Exception) {
-                Toast.makeText(this, "Error al abrir cámara", Toast.LENGTH_SHORT).show()
-            }
+            val options = arrayOf("Cámara", "Galería")
+            AlertDialog.Builder(this).setTitle("Seleccionar Imagen").setItems(options) { _, which ->
+                when (which) {
+                    0 -> fileLauncher.launch(Intent(MediaStore.ACTION_IMAGE_CAPTURE))
+                    1 -> {
+                        val i = Intent(Intent.ACTION_PICK, MediaStore.Images.Media.EXTERNAL_CONTENT_URI)
+                        fileLauncher.launch(i)
+                    }
+                }
+            }.show()
         }
 
         findViewById<ImageButton>(R.id.btnAudio).setOnClickListener {
@@ -175,11 +200,9 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 contentList.addAll(sorted)
                 adapter.notifyDataSetChanged()
                 
-                // Función update_scroll: Autoscroll Robusto (v34.0)
+                // Autoscroll INSTANTÁNEO (v37.7)
                 if (contentList.isNotEmpty()) {
-                    recyclerView.post {
-                        recyclerView.scrollToPosition(contentList.size - 1)
-                    }
+                    recyclerView.scrollToPosition(contentList.size - 1)
                 }
 
                 if (!isFirst && sorted.last()["type"] == "PAYMENT") {
@@ -282,17 +305,65 @@ class HiveAdapter(private val list: List<Map<String, String>>) : RecyclerView.Ad
     }
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, pos: Int) {
         val d = list[pos]; val time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(d["timestamp"]?.toLongOrNull() ?: 0L))
+        
+        val user = d["user"] ?: "SISTEMA" // Pagos suelen ser SISTEMA
+        val isMe = user == "SISTEMA" || user == Build.MODEL
+        
         if (holder is PaymentViewHolder) {
             holder.tvNombre.text = d["nombre"]; holder.tvMonto.text = "S/ ${d["monto"]}"; holder.tvBanco.text = "${d["banco"]} • $time"
+            
+            // Alineación Dinámica (v37.7)
+            val params = holder.llBubble.layoutParams as LinearLayout.LayoutParams
+            params.gravity = if (isMe) Gravity.END else Gravity.START
+            holder.llBubble.layoutParams = params
+            (holder.itemView as LinearLayout).gravity = if (isMe) Gravity.END else Gravity.START
+            
+            // Colores WhatsApp
+            holder.llBubble.backgroundTintList = ColorStateList.valueOf(Color.parseColor(if (isMe) "#E1FFC7" else "#FFFFFF"))
+            
         } else if (holder is MessageViewHolder) {
-            holder.tvUser.text = d["user"]; holder.tvMessage.text = d["content"] ?: d["type"]; holder.tvTime.text = time
+            holder.tvUser.text = user
+            holder.tvTime.text = time
+            
+            // Alineación Dinámica (v37.7)
+            val params = holder.llBubble.layoutParams as LinearLayout.LayoutParams
+            params.gravity = if (isMe) Gravity.END else Gravity.START
+            holder.llBubble.layoutParams = params
+            (holder.itemView as LinearLayout).gravity = if (isMe) Gravity.END else Gravity.START
+            
+            // Colores WhatsApp
+            holder.llBubble.backgroundTintList = ColorStateList.valueOf(Color.parseColor(if (isMe) "#E1FFC7" else "#FFFFFF"))
+
+            // Lógica de Imagen (Renderizado Correcto)
+            if (d["type"] == "IMAGE") {
+                holder.tvMessage.visibility = View.GONE
+                holder.ivContent.visibility = View.VISIBLE
+                try {
+                    val decoded = Base64.decode(d["content"], Base64.DEFAULT)
+                    val bitmap = BitmapFactory.decodeByteArray(decoded, 0, decoded.size)
+                    holder.ivContent.setImageBitmap(bitmap)
+                } catch (e: Exception) {
+                    holder.ivContent.setImageResource(android.R.drawable.ic_menu_gallery)
+                }
+            } else {
+                holder.tvMessage.visibility = View.VISIBLE
+                holder.ivContent.visibility = View.GONE
+                holder.tvMessage.text = d["content"] ?: d["type"]
+            }
         }
     }
     override fun getItemCount() = list.size
     class PaymentViewHolder(v: View) : RecyclerView.ViewHolder(v) {
-        val tvNombre: TextView = v.findViewById(R.id.tvNombre); val tvMonto: TextView = v.findViewById(R.id.tvMonto); val tvBanco: TextView = v.findViewById(R.id.tvBanco)
+        val tvNombre: TextView = v.findViewById(R.id.tvNombre)
+        val tvMonto: TextView = v.findViewById(R.id.tvMonto)
+        val tvBanco: TextView = v.findViewById(R.id.tvBanco)
+        val llBubble: LinearLayout = v.findViewById(R.id.llBubble)
     }
     class MessageViewHolder(v: View) : RecyclerView.ViewHolder(v) {
-        val tvUser: TextView = v.findViewById(R.id.tvUser); val tvMessage: TextView = v.findViewById(R.id.tvMessage); val tvTime: TextView = v.findViewById(R.id.tvTime)
+        val tvUser: TextView = v.findViewById(R.id.tvUser)
+        val tvMessage: TextView = v.findViewById(R.id.tvMessage)
+        val tvTime: TextView = v.findViewById(R.id.tvTime)
+        val ivContent: ImageView = v.findViewById(R.id.ivContent)
+        val llBubble: LinearLayout = v.findViewById(R.id.llBubble)
     }
 }
