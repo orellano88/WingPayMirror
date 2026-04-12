@@ -334,21 +334,22 @@ class HiveAdapter(private val list: List<Map<String, String>>) : RecyclerView.Ad
             // Colores WhatsApp
             holder.llBubble.backgroundTintList = ColorStateList.valueOf(Color.parseColor(if (isMe) "#E1FFC7" else "#FFFFFF"))
 
-            // Lógica de Imagen (Renderizado Correcto)
+            // Lógica de Imagen y Texto (v37.8)
+            val content = d["content"] ?: ""
             if (d["type"] == "IMAGE") {
                 holder.tvMessage.visibility = View.GONE
                 holder.ivContent.visibility = View.VISIBLE
                 try {
-                    val decoded = Base64.decode(d["content"], Base64.DEFAULT)
+                    val decoded = Base64.decode(content, Base64.DEFAULT)
                     val bitmap = BitmapFactory.decodeByteArray(decoded, 0, decoded.size)
                     holder.ivContent.setImageBitmap(bitmap)
                 } catch (e: Exception) {
                     holder.ivContent.setImageResource(android.R.drawable.ic_menu_gallery)
                 }
             } else {
-                holder.tvMessage.visibility = View.VISIBLE
                 holder.ivContent.visibility = View.GONE
-                holder.tvMessage.text = d["content"] ?: d["type"]
+                holder.tvMessage.visibility = View.VISIBLE
+                holder.tvMessage.text = content
             }
         }
     }
