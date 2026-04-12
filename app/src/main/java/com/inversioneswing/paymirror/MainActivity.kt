@@ -47,9 +47,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private val contentList = mutableListOf<Map<String, String>>()
     private var lastUpdateTag = ""
     private val neuralId by lazy { 
-        val prefs = getSharedPreferences("STARK_PREFS", Context.MODE_PRIVATE)
         val myId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
-        prefs.getString("NEURAL_ID", myId) ?: myId
+        getSharedPreferences("STARK_PREFS", Context.MODE_PRIVATE).getString("NEURAL_ID", myId) ?: myId
     }
     private val dbBaseUrl = "https://wingpaymirror-default-rtdb.firebaseio.com/hives"
     private val activityJob = SupervisorJob()
@@ -95,7 +94,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
             if (!pm.isIgnoringBatteryOptimizations(packageName)) {
-                try { startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply { data = Uri.parse("package:$packageName") }) } catch (e: Exception) {}
+                try { 
+                    val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply { data = Uri.parse("package:$packageName") }
+                    startActivity(intent) 
+                } catch (e: Exception) {}
             }
         }
     }
@@ -121,14 +123,13 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             newList.add(map)
         }
         val sorted = newList.sortedBy { it["timestamp"]?.toLongOrNull() ?: 0L }
-        val currentTag = if (sorted.isNotEmpty()) sorted.last()["timestamp"] + (sorted.last()["content"] ?: "") else ""
+        val currentTag = if (sorted.isNotEmpty()) (sorted.last()["timestamp"] ?: "") + (sorted.last()["content"] ?: "") else ""
         if (currentTag != lastUpdateTag) {
-            val isFirst = lastUpdateTag == ""
             lastUpdateTag = currentTag
             withContext(Dispatchers.Main) {
                 contentList.clear(); contentList.addAll(sorted); adapter.notifyDataSetChanged()
                 if (contentList.isNotEmpty()) recyclerView.scrollToPosition(contentList.size - 1)
-                if (!isFirst && sorted.last()["type"] == "PAYMENT") speakPayment(sorted.last()["nombre"] ?: "Externo", sorted.last()["monto"] ?: "0")
+                if (sorted.isNotEmpty() && sorted.last()["type"] == "PAYMENT") speakPayment(sorted.last()["nombre"] ?: "Cliente", sorted.last()["monto"] ?: "0")
             }
         }
     }
@@ -136,13 +137,16 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private fun sendToHive(type: String, content: String) {
         val body = JSONObject().apply { put("type", type); put("content", content); put("user", Build.MODEL); put("timestamp", System.currentTimeMillis()) }
         activityScope.launch(Dispatchers.IO) {
-            try { URL("$dbBaseUrl/$neuralId.json").openConnection().apply { (this as java.net.HttpURLConnection).requestMethod="POST"; doOutput=true; setRequestProperty("Content-Type", "application/json"); outputStream.bufferedWriter().use { it.write(body.toString()) }; responseCode } } catch(e: Exception) {}
+            try { 
+                val conn = URL("$dbBaseUrl/$neuralId.json").openConnection() as HttpURLConnection
+                conn.requestMethod="POST"; conn.doOutput=true; conn.setRequestProperty("Content-Type", "application/json")
+                conn.outputStream.bufferedWriter().use { it.write(body.toString()) }; conn.responseCode; conn.disconnect()
+            } catch (e: Exception) {}
         }
     }
 
     private fun speakPayment(n: String, m: String) { 
         if (isTtsReady) {
-            // PROTOCOLO ALTAVOZ MAESTRO (v40.3)
             try {
                 audioManager.mode = AudioManager.MODE_NORMAL
                 audioManager.isSpeakerphoneOn = true
