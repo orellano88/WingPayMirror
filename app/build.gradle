@@ -11,8 +11,8 @@ android {
         applicationId "com.inversioneswing.paymirror"
         minSdk 26
         targetSdk 35
-        versionCode 90
-        versionName "9.0-STARK-CENTRAL"
+        versionCode 100
+        versionName "10.0-STARK-NATIVE"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -31,6 +31,11 @@ android {
     }
 }
 
+repositories {
+    google()
+    mavenCentral()
+}
+
 dependencies {
     implementation 'androidx.core:core-ktx:1.12.0'
     implementation 'androidx.lifecycle:lifecycle-runtime-ktx:2.6.2'
@@ -40,8 +45,6 @@ dependencies {
     implementation 'androidx.compose.ui:ui-graphics'
     implementation 'androidx.compose.material3:material3'
     
-    implementation 'com.squareup.okhttp3:okhttp:4.12.0'
-    implementation 'com.google.gson:gson:2.10.1'
-
+    // Conexión Web Nativa (Sin GSON ni OkHttp externo para evitar bloqueos)
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
 }
