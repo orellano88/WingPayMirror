@@ -8,6 +8,8 @@ import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
+import android.media.AudioAttributes
+import android.media.AudioManager
 import android.media.MediaPlayer
 import android.media.RingtoneManager
 import android.net.Uri
@@ -15,15 +17,12 @@ import android.os.*
 import android.provider.MediaStore
 import android.provider.Settings
 import android.speech.tts.TextToSpeech
-import android.text.TextUtils
 import android.util.Base64
 import android.view.*
 import android.widget.*
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
-import androidx.core.app.ActivityCompat
-import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import com.google.zxing.BarcodeFormat
@@ -42,17 +41,17 @@ import java.util.*
 class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private lateinit var tts: TextToSpeech
     private var isTtsReady = false
+    private lateinit var audioManager: AudioManager
     private lateinit var recyclerView: RecyclerView
     private lateinit var adapter: HiveAdapter
     private val contentList = mutableListOf<Map<String, String>>()
     private var lastUpdateTag = ""
-    private var isAlertActive = false
-    private var mediaPlayer: MediaPlayer? = null
-    
-    private var neuralId = ""
-    private val prefs by lazy { getSharedPreferences("STARK_PREFS", Context.MODE_PRIVATE) }
+    private val neuralId by lazy { 
+        val prefs = getSharedPreferences("STARK_PREFS", Context.MODE_PRIVATE)
+        val myId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
+        prefs.getString("NEURAL_ID", myId) ?: myId
+    }
     private val dbBaseUrl = "https://wingpaymirror-default-rtdb.firebaseio.com/hives"
-    
     private val activityJob = SupervisorJob()
     private val activityScope = CoroutineScope(Dispatchers.Main + activityJob)
 
@@ -62,8 +61,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             if (data != null) {
                 val stream = ByteArrayOutputStream()
                 data.compress(Bitmap.CompressFormat.JPEG, 70, stream)
-                val base64 = Base64.encodeToString(stream.toByteArray(), Base64.DEFAULT)
-                sendToHive("IMAGE", base64)
+                sendToHive("IMAGE", Base64.encodeToString(stream.toByteArray(), Base64.DEFAULT))
             }
         }
     }
@@ -71,10 +69,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
-        
-        val myId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
-        neuralId = prefs.getString("NEURAL_ID", myId) ?: myId
-        
+        audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         setupUI()
         startNeuralSync()
         requestImmortality()
@@ -86,51 +81,21 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         recyclerView.layoutManager = LinearLayoutManager(this).apply { stackFromEnd = true }
         adapter = HiveAdapter(contentList)
         recyclerView.adapter = adapter
-
         updateUIState()
-
-        // LÓGICA DE CONFIGURACIÓN TELEGRAM
-        val layoutSettings = findViewById<LinearLayout>(R.id.layoutSettings)
-        val etToken = findViewById<EditText>(R.id.etBotToken)
-        val etChatId = findViewById<EditText>(R.id.etChatId)
-        
-        etToken.setText("8629465941:AAH-5rwmNDTP_91UKZIRrJO_oZ24p1IcIQE")
-        etChatId.setText("8502345704")
-
-        findViewById<ImageButton>(R.id.btnSettings).setOnClickListener {
-            layoutSettings.visibility = if (layoutSettings.visibility == View.VISIBLE) View.GONE else View.VISIBLE
-        }
-
-        findViewById<Button>(R.id.btnSaveSettings).setOnClickListener {
-            prefs.edit().apply {
-                putString("TG_TOKEN", etToken.text.toString().trim())
-                putString("TG_CHAT_ID", etChatId.text.toString().trim())
-                apply()
-            }
-            layoutSettings.visibility = View.GONE
-            Toast.makeText(this, "Enlace Neuronal Telegram Guardado", Toast.LENGTH_SHORT).show()
-        }
 
         findViewById<ImageButton>(R.id.btnSend).setOnClickListener {
             val et = findViewById<EditText>(R.id.etMessage)
             val txt = et.text.toString().trim()
-            if (txt.isNotEmpty()) { et.setText(""); sendToHive("MESSAGE", txt); vibrate(50) }
+            if (txt.isNotEmpty()) { et.setText(""); sendToHive("MESSAGE", txt) }
         }
-
-        findViewById<ImageButton>(R.id.btnAttach).setOnClickListener {
-            cameraLauncher.launch(Intent(MediaStore.ACTION_IMAGE_CAPTURE))
-        }
+        findViewById<ImageButton>(R.id.btnAttach).setOnClickListener { cameraLauncher.launch(Intent(MediaStore.ACTION_IMAGE_CAPTURE)) }
     }
 
     private fun requestImmortality() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
             if (!pm.isIgnoringBatteryOptimizations(packageName)) {
-                try {
-                    val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS)
-                    intent.data = Uri.parse("package:$packageName")
-                    startActivity(intent)
-                } catch (e: Exception) {}
+                try { startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply { data = Uri.parse("package:$packageName") }) } catch (e: Exception) {}
             }
         }
     }
@@ -145,7 +110,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private suspend fun syncData() {
-        val json = httpGet("$dbBaseUrl/$neuralId.json?limitToLast=20")
+        val json = try { URL("$dbBaseUrl/$neuralId.json?limitToLast=20").openConnection().apply { connectTimeout=5000 }.inputStream.bufferedReader().use { it.readText() } } catch(e: Exception) { "" }
         if (TextUtils.isEmpty(json) || json == "null") return
         val root = JSONObject(json)
         val newList = mutableListOf<Map<String, String>>()
@@ -169,31 +134,30 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun sendToHive(type: String, content: String) {
-        val body = JSONObject().apply {
-            put("type", type); put("content", content); put("user", Build.MODEL); put("timestamp", System.currentTimeMillis())
+        val body = JSONObject().apply { put("type", type); put("content", content); put("user", Build.MODEL); put("timestamp", System.currentTimeMillis()) }
+        activityScope.launch(Dispatchers.IO) {
+            try { URL("$dbBaseUrl/$neuralId.json").openConnection().apply { (this as java.net.HttpURLConnection).requestMethod="POST"; doOutput=true; setRequestProperty("Content-Type", "application/json"); outputStream.bufferedWriter().use { it.write(body.toString()) }; responseCode } } catch(e: Exception) {}
         }
-        activityScope.launch(Dispatchers.IO) { httpPost("$dbBaseUrl/$neuralId.json", body.toString()) }
-    }
-
-    private fun httpGet(urlStr: String) = try { (URL(urlStr).openConnection() as HttpURLConnection).apply { connectTimeout=5000 }.inputStream.bufferedReader().use { it.readText() } } catch(e: Exception) { "" }
-    private fun httpPost(urlStr: String, data: String) { try { (URL(urlStr).openConnection() as HttpURLConnection).apply { requestMethod="POST"; doOutput=true; setRequestProperty("Content-Type", "application/json"); outputStream.bufferedWriter().use { it.write(data) }; responseCode } } catch(e: Exception) {} }
-
-    private fun vibrate(ms: Long) {
-        val v = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-        if (Build.VERSION.SDK_INT >= 26) v.vibrate(VibrationEffect.createOneShot(ms, VibrationEffect.DEFAULT_AMPLITUDE)) else v.vibrate(ms)
-    }
-
-    private fun updateUIState() {
-        val badge = findViewById<TextView>(R.id.tvRoleBadge) ?: return
-        val myId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
-        badge.text = if (neuralId == myId) "MAESTRO • TELEGRAM ACTIVE" else "ESPEJO • TELEGRAM ACTIVE"
     }
 
     private fun speakPayment(n: String, m: String) { 
         if (isTtsReady) {
-            val text = "Señor, nuevo pago de $n por $m soles"
-            tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "PAY_ID")
+            // PROTOCOLO ALTAVOZ MAESTRO (v40.3)
+            try {
+                audioManager.mode = AudioManager.MODE_NORMAL
+                audioManager.isSpeakerphoneOn = true
+                val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, maxVol, 0)
+                
+                val text = "Señor, atención. Nuevo pago de $n por $m soles."
+                val params = Bundle().apply { putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f) }
+                tts.speak(text, TextToSpeech.QUEUE_FLUSH, params, "PAY_ID")
+            } catch (e: Exception) {}
         }
+    }
+
+    private fun updateUIState() {
+        findViewById<TextView>(R.id.tvRoleBadge)?.text = "MASTER • ALTAVOZ ACTIVE"
     }
 
     override fun onInit(s: Int) { if (s == TextToSpeech.SUCCESS) { tts.language = Locale("es", "ES"); isTtsReady = true } }
@@ -211,7 +175,6 @@ class HiveAdapter(private val list: List<Map<String, String>>) : RecyclerView.Ad
         try {
             val d = list[pos]; val time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(d["timestamp"]?.toLongOrNull() ?: 0L))
             val user = d["user"] ?: "SISTEMA"; val isMe = user == "SISTEMA" || user == Build.MODEL
-            
             if (holder is PaymentViewHolder) {
                 holder.tvNombre.text = d["nombre"]; holder.tvMonto.text = "S/ ${d["monto"]}"; holder.tvBanco.text = "${d["banco"]} • $time"
                 holder.llBubble.gravity = if (isMe) Gravity.END else Gravity.START
@@ -223,8 +186,7 @@ class HiveAdapter(private val list: List<Map<String, String>>) : RecyclerView.Ad
                 val content = d["content"] ?: ""
                 if (d["type"] == "IMAGE") {
                     holder.tvMessage.visibility = View.GONE; holder.ivContent.visibility = View.VISIBLE
-                    try { val decoded = Base64.decode(content, Base64.DEFAULT); holder.ivContent.setImageBitmap(BitmapFactory.decodeByteArray(decoded, 0, decoded.size)) } 
-                    catch (e: Exception) { holder.ivContent.setImageResource(android.R.drawable.ic_menu_gallery) }
+                    try { val decoded = Base64.decode(content, Base64.DEFAULT); holder.ivContent.setImageBitmap(BitmapFactory.decodeByteArray(decoded, 0, decoded.size)) } catch (e: Exception) { holder.ivContent.setImageResource(android.R.drawable.ic_menu_gallery) }
                 } else {
                     holder.ivContent.visibility = View.GONE; holder.tvMessage.visibility = View.VISIBLE; holder.tvMessage.text = content
                 }
@@ -232,10 +194,6 @@ class HiveAdapter(private val list: List<Map<String, String>>) : RecyclerView.Ad
         } catch (e: Exception) {}
     }
     override fun getItemCount() = list.size
-    class PaymentViewHolder(v: View) : RecyclerView.ViewHolder(v) {
-        val tvNombre = v.findViewById<TextView>(R.id.tvNombre); val tvMonto = v.findViewById<TextView>(R.id.tvMonto); val tvBanco = v.findViewById<TextView>(R.id.tvBanco); val llBubble = v.findViewById<LinearLayout>(R.id.llBubble)
-    }
-    class MessageViewHolder(v: View) : RecyclerView.ViewHolder(v) {
-        val tvUser = v.findViewById<TextView>(R.id.tvUser); val tvMessage = v.findViewById<TextView>(R.id.tvMessage); val tvTime = v.findViewById<TextView>(R.id.tvTime); val ivContent = v.findViewById<ImageView>(R.id.ivContent); val llBubble = v.findViewById<LinearLayout>(R.id.llBubble)
-    }
+    class PaymentViewHolder(v: View) : RecyclerView.ViewHolder(v) { val tvNombre = v.findViewById<TextView>(R.id.tvNombre); val tvMonto = v.findViewById<TextView>(R.id.tvMonto); val tvBanco = v.findViewById<TextView>(R.id.tvBanco); val llBubble = v.findViewById<LinearLayout>(R.id.llBubble) }
+    class MessageViewHolder(v: View) : RecyclerView.ViewHolder(v) { val tvUser = v.findViewById<TextView>(R.id.tvUser); val tvMessage = v.findViewById<TextView>(R.id.tvMessage); val tvTime = v.findViewById<TextView>(R.id.tvTime); val ivContent = v.findViewById<ImageView>(R.id.ivContent); val llBubble = v.findViewById<LinearLayout>(R.id.llBubble) }
 }
