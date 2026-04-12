@@ -2,16 +2,16 @@
 <RelativeLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="#050505">
+    android:background="#F0F2F5">
 
-    <!-- CABECERA STARK CON BOTON DE PANICO -->
+    <!-- CABECERA STARK RED -->
     <RelativeLayout
         android:id="@+id/header"
         android:layout_width="match_parent"
         android:layout_height="65dp"
         android:background="#FF0000"
         android:padding="12dp"
-        android:elevation="8dp">
+        android:elevation="4dp">
         
         <TextView
             android:layout_width="wrap_content"
@@ -27,42 +27,52 @@
             android:layout_width="45dp"
             android:layout_height="45dp"
             android:layout_alignParentEnd="true"
-            android:background="@drawable/ic_whatsapp_red"
-            android:backgroundTint="#FFFFFF"
-            android:padding="8dp"
-            android:scaleType="centerInside"
+            android:background="?attr/selectableItemBackgroundBorderless"
             android:src="@android:drawable/ic_lock_idle_alarm"
-            android:tint="#FF0000"
+            android:tint="#FFFFFF"
             android:layout_centerVertical="true"/>
             
-        <View
-            android:id="@+id/heartbeat_indicator"
-            android:layout_width="10dp"
-            android:layout_height="10dp"
-            android:background="@android:drawable/presence_online"
+        <ImageButton
+            android:id="@+id/btnQR"
+            android:layout_width="45dp"
+            android:layout_height="45dp"
             android:layout_toStartOf="@id/btnPanic"
             android:layout_marginEnd="10dp"
+            android:background="?attr/selectableItemBackgroundBorderless"
+            android:src="@android:drawable/ic_menu_camera"
+            android:tint="#FFFFFF"
             android:layout_centerVertical="true"/>
     </RelativeLayout>
 
-    <!-- BARRA DE MENSAJES ESTILO WHATSAPP -->
+    <!-- FOOTER INVERSIONES WING -->
+    <LinearLayout
+        android:id="@+id/footer"
+        android:layout_width="match_parent"
+        android:layout_height="30dp"
+        android:layout_alignParentBottom="true"
+        android:background="#FFFFFF"
+        android:gravity="center"
+        android:elevation="8dp">
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:text="INVERSIONES WING — SISTEMA DE ESPEJO NEURONAL"
+            android:textColor="#99000000"
+            android:textSize="10sp"
+            android:textStyle="bold"
+            android:letterSpacing="0.1"/>
+    </LinearLayout>
+
+    <!-- BARRA DE MENSAJES -->
     <LinearLayout
         android:id="@+id/bottom_bar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_alignParentBottom="true"
+        android:layout_above="@id/footer"
         android:orientation="horizontal"
         android:padding="8dp"
-        android:background="#101010"
+        android:background="#F0F2F5"
         android:gravity="center_vertical">
-
-        <ImageButton
-            android:id="@+id/btnAttach"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@android:drawable/ic_menu_camera"
-            android:tint="#FFFFFF"/>
 
         <EditText
             android:id="@+id/etMessage"
@@ -70,21 +80,15 @@
             android:layout_height="wrap_content"
             android:layout_weight="1"
             android:background="@drawable/bg_whatsapp_bubble"
+            android:backgroundTint="#FFFFFF"
             android:hint="Escribe un mensaje..."
-            android:textColorHint="#66FFFFFF"
-            android:textColor="#FFFFFF"
+            android:textColorHint="#99000000"
+            android:textColor="#000000"
             android:padding="12dp"
             android:layout_marginHorizontal="8dp"
             android:maxLines="4"
-            android:textSize="14sp"/>
-
-        <ImageButton
-            android:id="@+id/btnAudio"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@android:drawable/ic_btn_speak_now"
-            android:tint="#FFFFFF"/>
+            android:textSize="14sp"
+            android:elevation="2dp"/>
 
         <ImageButton
             android:id="@+id/btnSend"
@@ -94,10 +98,12 @@
             android:src="@android:drawable/ic_menu_send"
             android:padding="10dp"
             android:scaleType="centerInside"
-            android:tint="#FFFFFF"/>
+            android:tint="#FFFFFF"
+            android:elevation="4dp"/>
 
     </LinearLayout>
 
+    <!-- LISTA DE CHAT -->
     <androidx.recyclerview.widget.RecyclerView
         android:id="@+id/recyclerView"
         android:layout_width="match_parent"

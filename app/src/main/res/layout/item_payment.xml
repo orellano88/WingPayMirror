@@ -10,14 +10,16 @@
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:background="@drawable/bg_whatsapp_bubble"
+        android:backgroundTint="#FFFFFF"
         android:padding="16dp"
-        android:minWidth="200dp">
+        android:minWidth="220dp"
+        android:elevation="2dp">
 
         <TextView
             android:id="@+id/tvNombre"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textColor="#00F3FF"
+            android:textColor="#FF0000"
             android:textStyle="bold"
             android:textSize="14sp"
             android:text="Nombre Cliente"/>
@@ -26,7 +28,7 @@
             android:id="@+id/tvMonto"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textColor="#FFFFFF"
+            android:textColor="#000000"
             android:textStyle="bold"
             android:textSize="28sp"
             android:text="S/ 0.00"/>
@@ -40,7 +42,7 @@
                 android:id="@+id/tvBanco"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:textColor="#66FFFFFF"
+                android:textColor="#99000000"
                 android:textSize="10sp"
                 android:text="YAPE"/>
 
@@ -49,7 +51,7 @@
                 android:layout_height="16dp"
                 android:layout_alignParentEnd="true"
                 android:src="@android:drawable/ic_menu_send"
-                android:tint="#00FF41"/>
+                android:tint="#25D366"/>
         </RelativeLayout>
 
     </LinearLayout>

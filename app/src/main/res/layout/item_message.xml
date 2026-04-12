@@ -10,15 +10,16 @@
         android:layout_height="wrap_content"
         android:orientation="vertical"
         android:background="@drawable/bg_whatsapp_bubble"
-        android:backgroundTint="#1F2937"
+        android:backgroundTint="#E1FFC7"
         android:padding="12dp"
-        android:minWidth="150dp">
+        android:minWidth="150dp"
+        android:elevation="1dp">
 
         <TextView
             android:id="@+id/tvUser"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textColor="#25D366"
+            android:textColor="#075E54"
             android:textStyle="bold"
             android:textSize="12sp"
             android:text="Usuario"/>
@@ -27,7 +28,7 @@
             android:id="@+id/tvMessage"
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:textColor="#FFFFFF"
+            android:textColor="#303030"
             android:textSize="16sp"
             android:text="Mensaje de chat..."/>
 
@@ -36,7 +37,7 @@
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:layout_gravity="end"
-            android:textColor="#66FFFFFF"
+            android:textColor="#99000000"
             android:textSize="10sp"
             android:text="12:00 PM"/>
 
