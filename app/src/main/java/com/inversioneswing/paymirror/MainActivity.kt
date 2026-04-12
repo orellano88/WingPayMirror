@@ -5,7 +5,6 @@ import android.app.Activity
 import android.content.*
 import android.content.pm.PackageManager
 import android.content.res.ColorStateList
-import android.graphics.Bitmap
 import android.media.MediaPlayer
 import android.media.RingtoneManager
 import android.os.*
@@ -43,7 +42,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private lateinit var recyclerView: RecyclerView
     private lateinit var adapter: HiveAdapter
     private val contentList = mutableListOf<Map<String, String>>()
-    private var lastUpdateId = ""
+    private var lastUpdateTag = ""
     private var isAlertActive = false
     private var mediaPlayer: MediaPlayer? = null
     
@@ -56,22 +55,33 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private val activityJob = SupervisorJob()
     private val activityScope = CoroutineScope(Dispatchers.Main + activityJob)
 
+    // Lanzador de Cámara Seguro
     private val cameraLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { res ->
-        if (res.resultCode == Activity.RESULT_OK) sendToHive("IMAGE", "[FOTO CAPTURADA]")
+        if (res.resultCode == Activity.RESULT_OK) {
+            sendToHive("IMAGE", "[FOTO ENVIADA]")
+            vibrate(100)
+        }
+    }
+
+    private val qrScanner = registerForActivityResult(ScanContract()) { res ->
+        if (res.contents != null) {
+            neuralId = res.contents
+            prefs.edit().putString("NEURAL_ID", neuralId).apply()
+            updateUIState()
+            contentList.clear(); adapter.notifyDataSetChanged(); lastUpdateTag = ""
+            Toast.makeText(this, "Neural Link OK", Toast.LENGTH_SHORT).show()
+        }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        loadNeuralLink()
-        setupUI()
-        startNeuralSync()
-    }
-
-    private fun loadNeuralLink() {
         val myId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
         neuralId = prefs.getString("NEURAL_ID", myId) ?: myId
+
+        setupUI()
+        startNeuralSync()
     }
 
     private fun setupUI() {
@@ -85,25 +95,30 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         val et = findViewById<EditText>(R.id.etMessage)
         findViewById<ImageButton>(R.id.btnSend).setOnClickListener {
-            if (et.text.isNotEmpty()) {
-                sendToHive("MESSAGE", et.text.toString())
+            val txt = et.text.toString()
+            if (txt.isNotEmpty()) {
+                sendToHive("MESSAGE", txt)
                 et.text.clear()
             }
         }
 
-        findViewById<ImageButton>(R.id.btnPanic).setOnClickListener { triggerGlobalAlert() }
-        findViewById<ImageButton>(R.id.btnQR).setOnClickListener { showQRMenu() }
-        
         findViewById<ImageButton>(R.id.btnAttach).setOnClickListener {
-            val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
-            cameraLauncher.launch(intent)
+            try {
+                val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
+                cameraLauncher.launch(intent)
+            } catch (e: Exception) {
+                Toast.makeText(this, "Error al abrir cámara", Toast.LENGTH_SHORT).show()
+            }
         }
 
         findViewById<ImageButton>(R.id.btnAudio).setOnClickListener {
             sendToHive("AUDIO", "[NOTA DE VOZ]")
-            vibrate(100)
-            Toast.makeText(this, "Micrófono Stark Activado", Toast.LENGTH_SHORT).show()
+            vibrate(150)
+            Toast.makeText(this, "Micrófono Activado", Toast.LENGTH_SHORT).show()
         }
+
+        findViewById<ImageButton>(R.id.btnPanic).setOnClickListener { triggerGlobalAlert() }
+        findViewById<ImageButton>(R.id.btnQR).setOnClickListener { showQRMenu() }
     }
 
     private fun updateUIState() {
@@ -113,8 +128,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             badge.text = "MODO MAESTRO"
             badge.backgroundTintList = ColorStateList.valueOf(0x33000000)
         } else {
-            badge.text = "MODO ESPEJO [Link: ${neuralId.take(5)}]"
-            badge.backgroundTintList = ColorStateList.valueOf(0x3300F3FF.toInt())
+            badge.text = "MODO ESPEJO [${neuralId.take(5)}]"
+            badge.backgroundTintList = ColorStateList.valueOf(0x33FF0000.toInt())
         }
     }
 
@@ -131,7 +146,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private suspend fun syncData() {
-        val json = httpGet("$dbBaseUrl/$neuralId.json?limitToLast=25")
+        val json = httpGet("$dbBaseUrl/$neuralId.json?limitToLast=30")
         if (TextUtils.isEmpty(json) || json == "null") return
         
         val root = JSONObject(json)
@@ -144,11 +159,11 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         }
         
         val sorted = newList.sortedBy { it["timestamp"]?.toLongOrNull() ?: 0L }
-        val currentTopId = if (sorted.isNotEmpty()) (sorted.last()["timestamp"] ?: "") + (sorted.last()["content"] ?: "") else ""
+        val currentTag = if (sorted.isNotEmpty()) sorted.last()["timestamp"] + sorted.last()["content"] else ""
 
-        if (currentTopId != lastUpdateId) {
-            val isFirst = lastUpdateId == ""
-            lastUpdateId = currentTopId
+        if (currentTag != lastUpdateTag) {
+            val isFirst = lastUpdateTag == ""
+            lastUpdateTag = currentTag
             withContext(Dispatchers.Main) {
                 contentList.clear(); contentList.addAll(sorted)
                 adapter.notifyDataSetChanged()
@@ -193,14 +208,14 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         val conn = URL(urlStr).openConnection() as HttpURLConnection
         try { conn.requestMethod = "POST"; conn.doOutput = true; conn.setRequestProperty("Content-Type", "application/json")
             OutputStreamWriter(conn.outputStream).use { it.write(data); it.flush() }; conn.responseCode
-        } finally { conn.disconnect() }
+        } catch (e: Exception) {} finally { conn.disconnect() }
     }
 
     private fun httpPut(urlStr: String, data: String) {
         val conn = URL(urlStr).openConnection() as HttpURLConnection
         try { conn.requestMethod = "PUT"; conn.doOutput = true; conn.setRequestProperty("Content-Type", "application/json")
             OutputStreamWriter(conn.outputStream).use { it.write(data); it.flush() }; conn.responseCode
-        } finally { conn.disconnect() }
+        } catch (e: Exception) {} finally { conn.disconnect() }
     }
 
     private fun startPanicAlarm() {
@@ -225,21 +240,20 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         AlertDialog.Builder(this).setItems(opt) { _, i ->
             when(i) {
                 0 -> showMyQR()
-                1 -> qrScanner.launch(ScanOptions().setPrompt("Escanea el QR Maestro"))
-                2 -> { prefs.edit().clear().apply(); loadNeuralLink(); updateUIState(); restartSync() }
+                1 -> qrScanner.launch(ScanOptions().setPrompt("Apunta al QR Maestro"))
+                2 -> { prefs.edit().clear().apply(); val mid = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID); neuralId = mid; updateUIState(); restartSync() }
             }
         }.show()
     }
 
     private fun showMyQR() {
-        val myId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
-        val matrix = MultiFormatWriter().encode(myId, BarcodeFormat.QR_CODE, 500, 500)
+        val mid = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
+        val matrix = MultiFormatWriter().encode(mid, BarcodeFormat.QR_CODE, 500, 500)
         val iv = ImageView(this).apply { setImageBitmap(BarcodeEncoder().createBitmap(matrix)); setPadding(40,40,40,40) }
         AlertDialog.Builder(this).setTitle("ID Maestro").setView(iv).show()
     }
 
-    private fun restartSync() { contentList.clear(); adapter.notifyDataSetChanged(); lastUpdateId = "" }
-    private val qrScanner = registerForActivityResult(ScanContract()) { if(it.contents != null) { prefs.edit().putString("NEURAL_ID", it.contents).apply(); loadNeuralLink(); updateUIState(); restartSync() } }
+    private fun restartSync() { contentList.clear(); adapter.notifyDataSetChanged(); lastUpdateTag = "" }
     private fun speakPayment(n: String, m: String) { if (isTtsReady) tts.speak("Pago de $n por $m soles", TextToSpeech.QUEUE_FLUSH, null, null) }
     override fun onInit(s: Int) { if (s == TextToSpeech.SUCCESS) { tts.language = Locale("es", "ES"); isTtsReady = true } }
     override fun onDestroy() { activityJob.cancel(); stopPanicAlarm(); super.onDestroy() }
@@ -257,7 +271,7 @@ class HiveAdapter(private val list: List<Map<String, String>>) : RecyclerView.Ad
         if (holder is PaymentViewHolder) {
             holder.tvNombre.text = d["nombre"]; holder.tvMonto.text = "S/ ${d["monto"]}"; holder.tvBanco.text = "${d["banco"]} • $time"
         } else if (holder is MessageViewHolder) {
-            holder.tvUser.text = d["user"]; holder.tvMessage.text = d["content"]; holder.tvTime.text = time
+            holder.tvUser.text = d["user"]; holder.tvMessage.text = d["content"] ?: d["type"]; holder.tvTime.text = time
         }
     }
     override fun getItemCount() = list.size

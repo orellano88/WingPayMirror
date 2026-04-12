@@ -6,6 +6,7 @@ import android.app.NotificationManager
 import android.content.Context
 import android.content.Intent
 import android.os.Build
+import android.provider.Settings
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import androidx.core.app.NotificationCompat
@@ -18,32 +19,18 @@ import kotlinx.coroutines.*
 
 class StarkCaptureService : NotificationListenerService() {
 
-    private val dbUrl = "https://wingpaymirror-default-rtdb.firebaseio.com/pagos.json"
-    private val statusUrl = "https://wingpaymirror-default-rtdb.firebaseio.com/status.json"
+    private val dbBaseUrl = "https://wingpaymirror-default-rtdb.firebaseio.com/hives"
     private val CHANNEL_ID = "WING_CORE_CHANNEL"
     
     private val serviceJob = SupervisorJob()
     private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
     
-    private val processedNotifications = mutableSetOf<String>() // Para deduplicación simple en memoria
+    private val processedNotifications = mutableSetOf<String>()
 
-    private val allowedPackages = setOf(
-        "com.viabcp.yape",
-        "com.bcp.innovabcp",
-        "com.viabcp.bcp"
-    )
-
-    override fun onCreate() {
-        super.onCreate()
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         createNotificationChannel()
         startForeground(1, createPersistentNotification())
-        
-        serviceScope.launch {
-            while(isActive) {
-                sendHeartbeat()
-                delay(300000) // 5 min
-            }
-        }
+        return START_STICKY
     }
 
     private fun createNotificationChannel() {
@@ -57,27 +44,22 @@ class StarkCaptureService : NotificationListenerService() {
     private fun createPersistentNotification(): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
             .setContentTitle("WING Pay-Mirror Activo")
-            .setContentText("Sincronización Neuronal Stark en curso...")
+            .setContentText("Escaneando flujos de pago...")
             .setSmallIcon(android.R.drawable.ic_menu_compass)
-            .setPriority(NotificationCompat.PRIORITY_LOW)
             .build()
     }
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val pkg = sbn.packageName
-        if (allowedPackages.contains(pkg) || pkg.contains("yape")) {
+        if (pkg.contains("yape") || pkg.contains("bcp")) {
             val extras = sbn.notification.extras
             val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
             val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
-            val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString() ?: ""
+            val fullContent = "$title $text"
             
-            val fullContent = "$title | $text | $bigText"
-            val notificationId = sbn.id.toString() + sbn.postTime.toString() // ID único por notificación
-
+            val notificationId = sbn.postTime.toString() + sbn.id
             if (!processedNotifications.contains(notificationId)) {
                 processedNotifications.add(notificationId)
-                if (processedNotifications.size > 100) processedNotifications.remove(processedNotifications.first())
-                
                 processPayment(fullContent, pkg)
             }
         }
@@ -89,31 +71,22 @@ class StarkCaptureService : NotificationListenerService() {
 
         if (matcher.find()) {
             val monto = matcher.group(1)?.replace(",", "") ?: "0.00"
-            val nombre = content.split("|")[0].trim() // Usar el título como posible nombre si es Yape
-                                .replace("¡Yapeaste!", "")
-                                .replace("te envió", "")
-                                .replace("Pago recibido de", "").trim()
+            val nombre = content.replace(matcher.group(0)!!, "").replace("¡Yapeaste!", "").replace("te envió", "").trim()
 
             val jsonBody = JSONObject().apply {
-                put("nombre", if (nombre.isEmpty()) "Externo" else nombre)
+                put("type", "PAYMENT")
+                put("nombre", if (nombre.length > 20) nombre.take(20) else nombre)
                 put("monto", monto)
                 put("timestamp", System.currentTimeMillis())
-                put("banco", if(pkg.contains("yape") || pkg.contains("innova")) "YAPE" else "BCP")
+                put("user", "SISTEMA")
+                put("banco", if(pkg.contains("yape")) "YAPE" else "BCP")
             }
 
             serviceScope.launch {
-                postToFirebase(dbUrl, jsonBody.toString())
+                val myId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
+                postToFirebase("$dbBaseUrl/$myId.json", jsonBody.toString())
             }
         }
-    }
-
-    private fun sendHeartbeat() {
-        val statusBody = JSONObject().apply {
-            put("last_active", System.currentTimeMillis())
-            put("status", "ONLINE")
-            put("version", "23.0-QWEN-PROTOCOL")
-        }
-        postToFirebase(statusUrl, statusBody.toString())
     }
 
     private fun postToFirebase(urlStr: String, data: String) {
@@ -122,12 +95,7 @@ class StarkCaptureService : NotificationListenerService() {
             connection.requestMethod = "POST"
             connection.doOutput = true
             connection.setRequestProperty("Content-Type", "application/json")
-            connection.connectTimeout = 10000
-            connection.readTimeout = 10000
-            OutputStreamWriter(connection.outputStream).use { 
-                it.write(data)
-                it.flush()
-            }
+            OutputStreamWriter(connection.outputStream).use { it.write(data); it.flush() }
             connection.responseCode
             connection.disconnect()
         } catch (e: Exception) {}
