@@ -17,18 +17,13 @@ jobs:
         distribution: 'temurin'
         cache: 'gradle'
 
-    - name: Instalar Gradle 8.5 Oficial
-      run: |
-        wget -q https://services.gradle.org/distributions/gradle-8.5-bin.zip
-        sudo unzip -d /opt/gradle gradle-8.5-bin.zip
-        echo "/opt/gradle/gradle-8.5/bin" >> $GITHUB_PATH
-
-    - name: Construir con Motor Stark 8.5
-      run: |
-        gradle assembleDebug --stacktrace
+    - name: Construir con Gradle Oficial
+      uses: gradle/gradle-build-action@v3
+      with:
+        arguments: assembleDebug --stacktrace
 
     - name: Entregar APK a la Tierra (JARVIS Protocol)
       uses: actions/upload-artifact@v4
       with:
-        name: WingPayMirror-v20-APK
+        name: WingPayMirror-v21-APK
         path: app/build/outputs/apk/debug/app-debug.apk
