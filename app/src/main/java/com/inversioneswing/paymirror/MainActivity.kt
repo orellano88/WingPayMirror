@@ -97,8 +97,13 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         findViewById<ImageButton>(R.id.btnSend).setOnClickListener {
             val txt = et.text.toString().trim()
             if (txt.isNotEmpty()) {
-                sendToHive("MESSAGE", txt)
-                et.setText("") // Limpieza total del TextInput (equivalente a su solicitud)
+                // 1. Limpieza INMEDIATA (Solicitud del Usuario)
+                et.setText("") 
+                
+                // 2. Envío en Hilo No Bloqueante (Dispatchers.IO)
+                activityScope.launch(Dispatchers.IO) {
+                    sendToHive("MESSAGE", txt)
+                }
                 vibrate(50)
             }
         }
@@ -170,10 +175,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                 contentList.addAll(sorted)
                 adapter.notifyDataSetChanged()
                 
-                // Función update_scroll: Autoscroll al final con un pequeño delay para asegurar renderizado
-                recyclerView.post {
-                    if (contentList.isNotEmpty()) {
-                        recyclerView.smoothScrollToPosition(contentList.size - 1)
+                // Función update_scroll: Autoscroll Robusto (v34.0)
+                if (contentList.isNotEmpty()) {
+                    recyclerView.post {
+                        recyclerView.scrollToPosition(contentList.size - 1)
                     }
                 }
 
