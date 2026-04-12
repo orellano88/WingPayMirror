@@ -18,7 +18,6 @@ import androidx.compose.ui.unit.dp
 import androidx.compose.ui.unit.sp
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.Brush
 import kotlinx.coroutines.delay
 import java.io.BufferedReader
 import java.io.InputStreamReader
@@ -94,7 +93,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
                         Spacer(modifier = Modifier.height(20.dp))
                         LazyColumn(modifier = Modifier.fillMaxSize()) {
                             items(paymentList) { payment ->
-                                GlassChatBubble(payment)
+                                SimpleChatBubble(payment)
                             }
                         }
                     }
@@ -115,7 +114,7 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
     }
 
     private fun speakPayment(nombre: String, monto: String) {
-        if (isTtsReady) tts.speak("Nuevo pago de $nombre por $monto soles", TextToSpeech.QUEUE_FLUSH, null, null)
+        if (isTtsReady) tts.speak("Pago de $nombre por $monto soles", TextToSpeech.QUEUE_FLUSH, null, null)
     }
 
     override fun onInit(status: Int) {
@@ -135,9 +134,9 @@ class MainActivity : ComponentActivity(), TextToSpeech.OnInitListener {
 }
 
 @Composable
-fun GlassChatBubble(p: Map<String, String>) {
+fun SimpleChatBubble(p: Map<String, String>) {
     val accentColor = if (p["banco"] == "YAPE") Color(0xFF25D366) else Color(0xFF00F3FF)
-    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).clip(RoundedCornerShape(16.dp)).background(Brush.verticalGradient(listOf(Color.White.copy(alpha = 0.08f), Color.White.copy(alpha = 0.03f)))).border(0.5.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(16.dp)).padding(16.dp)) {
+    Column(modifier = Modifier.fillMaxWidth().padding(vertical = 6.dp).clip(RoundedCornerShape(16.dp)).background(Color.White.copy(alpha = 0.05f)).border(1.dp, Color.White.copy(alpha = 0.1f), RoundedCornerShape(16.dp)).padding(16.dp)) {
         Row(verticalAlignment = Alignment.CenterVertically) {
             Text(p["nombre"] ?: "Desconocido", color = accentColor, fontSize = 13.sp, fontWeight = FontWeight.Bold, modifier = Modifier.weight(1f))
             Text(p["banco"] ?: "", color = Color.White.copy(alpha = 0.4f), fontSize = 10.sp)
