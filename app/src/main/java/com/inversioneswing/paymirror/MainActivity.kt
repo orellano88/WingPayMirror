@@ -112,7 +112,12 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private suspend fun syncData() {
-        val json = try { URL("$dbBaseUrl/$neuralId.json?limitToLast=20").openConnection().apply { connectTimeout=5000 }.inputStream.bufferedReader().use { it.readText() } } catch(e: Exception) { "" }
+        val json = try { 
+            val conn = URL("$dbBaseUrl/$neuralId.json?limitToLast=20").openConnection() as HttpURLConnection
+            conn.connectTimeout = 5000
+            conn.inputStream.bufferedReader().use { it.readText() }
+        } catch(e: Exception) { "" }
+        
         if (TextUtils.isEmpty(json) || json == "null") return
         val root = JSONObject(json)
         val newList = mutableListOf<Map<String, String>>()
@@ -129,7 +134,9 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             withContext(Dispatchers.Main) {
                 contentList.clear(); contentList.addAll(sorted); adapter.notifyDataSetChanged()
                 if (contentList.isNotEmpty()) recyclerView.scrollToPosition(contentList.size - 1)
-                if (sorted.isNotEmpty() && sorted.last()["type"] == "PAYMENT") speakPayment(sorted.last()["nombre"] ?: "Cliente", sorted.last()["monto"] ?: "0")
+                if (sorted.isNotEmpty() && sorted.last()["type"] == "PAYMENT") {
+                    speakPayment(sorted.last()["nombre"] ?: "Cliente", sorted.last()["monto"] ?: "0")
+                }
             }
         }
     }
@@ -148,14 +155,14 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private fun speakPayment(n: String, m: String) { 
         if (isTtsReady) {
             try {
-                audioManager.mode = AudioManager.MODE_NORMAL
+                // FORZAR ALTAVOZ (v40.3.2)
                 audioManager.isSpeakerphoneOn = true
+                audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
                 val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
                 audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, maxVol, 0)
                 
                 val text = "Señor, atención. Nuevo pago de $n por $m soles."
-                val params = Bundle().apply { putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f) }
-                tts.speak(text, TextToSpeech.QUEUE_FLUSH, params, "PAY_ID")
+                tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "PAY_ID")
             } catch (e: Exception) {}
         }
     }
@@ -164,7 +171,12 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         findViewById<TextView>(R.id.tvRoleBadge)?.text = "MASTER • ALTAVOZ ACTIVE"
     }
 
-    override fun onInit(s: Int) { if (s == TextToSpeech.SUCCESS) { tts.language = Locale("es", "ES"); isTtsReady = true } }
+    override fun onInit(s: Int) { 
+        if (s == TextToSpeech.SUCCESS) { 
+            tts.language = Locale("es", "ES")
+            isTtsReady = true 
+        } 
+    }
     override fun onDestroy() { activityJob.cancel(); super.onDestroy() }
 }
 
