@@ -1,16 +1,20 @@
 package com.inversioneswing.paymirror
 
+import android.Manifest
 import android.content.*
+import android.content.pm.PackageManager
 import android.media.MediaPlayer
 import android.media.RingtoneManager
 import android.os.*
-import android.provider.Settings
+import android.provider.MediaStore
 import android.speech.tts.TextToSpeech
 import android.text.TextUtils
 import android.view.*
 import android.widget.*
-import androidx.appcompat.app.AlertDialog
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
 import kotlinx.coroutines.*
@@ -33,18 +37,33 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private var isAlertActive = false
     private var mediaPlayer: MediaPlayer? = null
 
-    private val dbUrl = "https://wingpaymirror-default-rtdb.firebaseio.com/hive.json?limitToLast=50"
+    private val dbUrl = "https://wingpaymirror-default-rtdb.firebaseio.com/hive.json"
     private val alertUrl = "https://wingpaymirror-default-rtdb.firebaseio.com/alert.json"
     
     private val activityJob = SupervisorJob()
     private val activityScope = CoroutineScope(Dispatchers.Main + activityJob)
 
+    private val cameraLauncher = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
+        if (result.resultCode == RESULT_OK) {
+            sendToHive("IMAGE", "[Foto enviada desde ${Build.MODEL}]")
+            Toast.makeText(this, "Foto enviada al Enjambre", Toast.LENGTH_SHORT).show()
+        }
+    }
+
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
+        checkPermissions()
         setupUI()
         startSyncLoops()
+    }
+
+    private fun checkPermissions() {
+        val permissions = arrayOf(Manifest.permission.CAMERA, Manifest.permission.RECORD_AUDIO)
+        if (permissions.any { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }) {
+            ActivityCompat.requestPermissions(this, permissions, 101)
+        }
     }
 
     private fun setupUI() {
@@ -66,6 +85,16 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         findViewById<ImageButton>(R.id.btnPanic).setOnClickListener {
             triggerGlobalAlert()
         }
+
+        findViewById<ImageButton>(R.id.btnAttach).setOnClickListener {
+            val intent = Intent(MediaStore.ACTION_IMAGE_CAPTURE)
+            cameraLauncher.launch(intent)
+        }
+
+        findViewById<ImageButton>(R.id.btnAudio).setOnClickListener {
+            sendToHive("AUDIO", "[Audio enviado desde ${Build.MODEL}]")
+            Toast.makeText(this, "Micrófono Stark Activado", Toast.LENGTH_SHORT).show()
+        }
     }
 
     private fun startSyncLoops() {
@@ -73,7 +102,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             while(isActive) {
                 fetchHiveContent()
                 checkGlobalAlert()
-                delay(4000)
+                delay(3000) // Sincronización rápida
             }
         }
     }
@@ -81,7 +110,10 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private fun fetchHiveContent() {
         activityScope.launch(Dispatchers.IO) {
             try {
-                val json = httpGet(dbUrl)
+                val connection = URL("$dbUrl?limitToLast=30").openConnection() as HttpURLConnection
+                val json = BufferedReader(InputStreamReader(connection.inputStream)).use { it.readText() }
+                connection.disconnect()
+
                 if (!TextUtils.isEmpty(json) && json != "null") {
                     val root = JSONObject(json)
                     val keys = root.keys()
@@ -98,16 +130,17 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
                     val sorted = newList.sortedBy { it["timestamp"] }
 
                     withContext(Dispatchers.Main) {
-                        if (sorted.isNotEmpty() && sorted.last()["timestamp"] != lastId) {
+                        if (sorted.isNotEmpty() && (lastId == "" || sorted.last()["timestamp"] != lastId)) {
                             val newEntry = sorted.last()
+                            val isFirstRun = lastId == ""
                             lastId = newEntry["timestamp"] ?: ""
                             
                             contentList.clear()
                             contentList.addAll(sorted)
                             adapter.notifyDataSetChanged()
-                            recyclerView.scrollToPosition(contentList.size - 1)
+                            recyclerView.smoothScrollToPosition(contentList.size - 1)
 
-                            if (newEntry["type"] == "PAYMENT") {
+                            if (!isFirstRun && newEntry["type"] == "PAYMENT") {
                                 speakPayment(newEntry["nombre"] ?: "Externo", newEntry["monto"] ?: "0")
                             }
                         }
@@ -120,36 +153,47 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private fun checkGlobalAlert() {
         activityScope.launch(Dispatchers.IO) {
             try {
-                val json = httpGet(alertUrl)
-                if (json.contains("ACTIVE") && !isAlertActive) {
-                    withContext(Dispatchers.Main) { startPanicAlarm() }
-                } else if (json.contains("IDLE") && isAlertActive) {
-                    withContext(Dispatchers.Main) { stopPanicAlarm() }
+                val connection = URL(alertUrl).openConnection() as HttpURLConnection
+                val json = BufferedReader(InputStreamReader(connection.inputStream)).use { it.readText() }
+                connection.disconnect()
+
+                withContext(Dispatchers.Main) {
+                    if (json.contains("ACTIVE") && !isAlertActive) {
+                        startPanicAlarm()
+                    } else if (json.contains("IDLE") && isAlertActive) {
+                        stopPanicAlarm()
+                    }
                 }
             } catch (e: Exception) {}
         }
     }
 
     private fun triggerGlobalAlert() {
-        val status = if (isAlertActive) "IDLE" else "ACTIVE"
+        val nextStatus = if (isAlertActive) "IDLE" else "ACTIVE"
         activityScope.launch(Dispatchers.IO) {
-            httpPost(alertUrl, JSONObject().put("status", status).toString())
+            val connection = URL(alertUrl).openConnection() as HttpURLConnection
+            connection.requestMethod = "PUT" // Sobreescribir estado
+            connection.doOutput = true
+            OutputStreamWriter(connection.outputStream).use { 
+                it.write(JSONObject().put("status", nextStatus).toString())
+            }
+            connection.responseCode
+            connection.disconnect()
         }
     }
 
     private fun startPanicAlarm() {
         isAlertActive = true
-        val notification = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
-        mediaPlayer = MediaPlayer.create(this, notification)
+        val alertUri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+        mediaPlayer = MediaPlayer.create(this, alertUri)
         mediaPlayer?.isLooping = true
         mediaPlayer?.start()
         
         val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            vibrator.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 500, 200, 500), 0))
+            vibrator.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 1000, 500, 1000), 0))
         }
-        
-        Toast.makeText(this, "¡ALERTA GLOBAL ACTIVADA!", Toast.LENGTH_LONG).show()
+        Toast.makeText(this, "¡ALERTA STARK ACTIVADA!", Toast.LENGTH_LONG).show()
     }
 
     private fun stopPanicAlarm() {
@@ -167,29 +211,19 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             put("user", Build.MODEL)
             put("timestamp", System.currentTimeMillis())
         }
-        activityScope.launch(Dispatchers.IO) { httpPost(dbUrl.split("?")[0], body.toString()) }
-    }
-
-    private fun httpGet(urlStr: String): String {
-        val connection = URL(urlStr).openConnection() as HttpURLConnection
-        return try {
-            BufferedReader(InputStreamReader(connection.inputStream)).use { it.readText() }
-        } finally { connection.disconnect() }
-    }
-
-    private fun httpPost(urlStr: String, data: String) {
-        val connection = URL(urlStr).openConnection() as HttpURLConnection
-        try {
+        activityScope.launch(Dispatchers.IO) {
+            val connection = URL(dbUrl).openConnection() as HttpURLConnection
             connection.requestMethod = "POST"
             connection.doOutput = true
             connection.setRequestProperty("Content-Type", "application/json")
-            OutputStreamWriter(connection.outputStream).use { it.write(data); it.flush() }
+            OutputStreamWriter(connection.outputStream).use { it.write(body.toString()) }
             connection.responseCode
-        } finally { connection.disconnect() }
+            connection.disconnect()
+        }
     }
 
     private fun speakPayment(nombre: String, monto: String) {
-        if (isTtsReady) tts.speak("Pago de $nombre por $monto soles", TextToSpeech.QUEUE_FLUSH, null, null)
+        if (isTtsReady) tts.speak("Nuevo pago de $nombre por $monto soles", TextToSpeech.QUEUE_FLUSH, null, null)
     }
 
     override fun onInit(status: Int) {
@@ -208,22 +242,17 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
 class HiveAdapter(private val list: List<Map<String, String>>) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
     
-    override fun getItemViewType(position: Int): Int {
-        return if (list[position]["type"] == "PAYMENT") 0 else 1
-    }
+    override fun getItemViewType(position: Int): Int = if (list[position]["type"] == "PAYMENT") 0 else 1
 
     override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
         val inflater = LayoutInflater.from(parent.context)
-        return if (viewType == 0) {
-            PaymentViewHolder(inflater.inflate(R.layout.item_payment, parent, false))
-        } else {
-            MessageViewHolder(inflater.inflate(R.layout.item_message, parent, false))
-        }
+        return if (viewType == 0) PaymentViewHolder(inflater.inflate(R.layout.item_payment, parent, false))
+        else MessageViewHolder(inflater.inflate(R.layout.item_message, parent, false))
     }
 
     override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
         val data = list[position]
-        val time = SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date(data["timestamp"]?.toLong() ?: 0L))
+        val time = SimpleDateFormat("HH:mm", Locale.getDefault()).format(Date(data["timestamp"]?.toLong() ?: 0L))
         
         if (holder is PaymentViewHolder) {
             holder.tvNombre.text = data["nombre"] ?: "Externo"
