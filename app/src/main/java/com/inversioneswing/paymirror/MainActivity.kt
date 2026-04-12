@@ -1,13 +1,14 @@
 package com.inversioneswing.paymirror
 
-import android.content.ComponentName
-import android.content.Intent
+import android.content.*
+import android.media.MediaPlayer
+import android.media.RingtoneManager
 import android.os.*
 import android.provider.Settings
 import android.speech.tts.TextToSpeech
 import android.text.TextUtils
 import android.view.*
-import android.widget.TextView
+import android.widget.*
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.recyclerview.widget.LinearLayoutManager
@@ -16,18 +17,24 @@ import kotlinx.coroutines.*
 import org.json.JSONObject
 import java.io.BufferedReader
 import java.io.InputStreamReader
+import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
+import java.text.SimpleDateFormat
 import java.util.*
 
 class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private lateinit var tts: TextToSpeech
     private var isTtsReady = false
     private lateinit var recyclerView: RecyclerView
-    private lateinit var adapter: PaymentAdapter
-    private val paymentList = mutableListOf<Map<String, String>>()
+    private lateinit var adapter: HiveAdapter
+    private val contentList = mutableListOf<Map<String, String>>()
     private var lastId = ""
-    private val dbUrl = "https://wingpaymirror-default-rtdb.firebaseio.com/pagos.json?orderBy=\"timestamp\"&limitToLast=20"
+    private var isAlertActive = false
+    private var mediaPlayer: MediaPlayer? = null
+
+    private val dbUrl = "https://wingpaymirror-default-rtdb.firebaseio.com/hive.json?limitToLast=50"
+    private val alertUrl = "https://wingpaymirror-default-rtdb.firebaseio.com/alert.json"
     
     private val activityJob = SupervisorJob()
     private val activityScope = CoroutineScope(Dispatchers.Main + activityJob)
@@ -36,98 +43,149 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         super.onCreate(savedInstanceState)
         setContentView(R.layout.activity_main)
 
-        if (!isNotificationServiceEnabled()) {
-            showPermissionDialog()
-        }
+        setupUI()
+        startSyncLoops()
+    }
 
+    private fun setupUI() {
         tts = TextToSpeech(this, this)
         recyclerView = findViewById(R.id.recyclerView)
-        recyclerView.layoutManager = LinearLayoutManager(this)
-        adapter = PaymentAdapter(paymentList)
+        recyclerView.layoutManager = LinearLayoutManager(this).apply { stackFromEnd = true }
+        adapter = HiveAdapter(contentList)
         recyclerView.adapter = adapter
 
-        val indicator = findViewById<View>(R.id.heartbeat_indicator)
+        val etMessage = findViewById<EditText>(R.id.etMessage)
+        findViewById<ImageButton>(R.id.btnSend).setOnClickListener {
+            val msg = etMessage.text.toString()
+            if (msg.isNotEmpty()) {
+                sendToHive("MESSAGE", msg)
+                etMessage.text.clear()
+            }
+        }
 
+        findViewById<ImageButton>(R.id.btnPanic).setOnClickListener {
+            triggerGlobalAlert()
+        }
+    }
+
+    private fun startSyncLoops() {
         activityScope.launch {
             while(isActive) {
-                indicator.visibility = View.VISIBLE
-                fetchPayments()
-                delay(1000)
-                indicator.visibility = View.INVISIBLE
+                fetchHiveContent()
+                checkGlobalAlert()
                 delay(4000)
             }
         }
     }
 
-    private fun isNotificationServiceEnabled(): Boolean {
-        val pkgName = packageName
-        val flat = Settings.Secure.getString(contentResolver, "enabled_notification_listeners")
-        if (!TextUtils.isEmpty(flat)) {
-            val names = flat.split(":")
-            for (name in names) {
-                val cn = ComponentName.unflattenFromString(name)
-                if (cn != null && TextUtils.equals(pkgName, cn.packageName)) return true
-            }
-        }
-        return false
-    }
-
-    private fun showPermissionDialog() {
-        AlertDialog.Builder(this)
-            .setTitle("Acceso Requerido")
-            .setMessage("Para capturar los pagos de Yape/BCP, WING necesita acceso a las notificaciones. ¿Deseas activarlo ahora?")
-            .setPositiveButton("Activar") { _, _ ->
-                startActivity(Intent("android.settings.ACTION_NOTIFICATION_LISTENER_SETTINGS"))
-            }
-            .setNegativeButton("Más tarde", null)
-            .show()
-    }
-
-    private fun fetchPayments() {
+    private fun fetchHiveContent() {
         activityScope.launch(Dispatchers.IO) {
             try {
-                val connection = URL(dbUrl).openConnection() as HttpURLConnection
-                connection.requestMethod = "GET"
-                connection.connectTimeout = 8000
-                val json = try {
-                    BufferedReader(InputStreamReader(connection.inputStream)).use { it.readText() }
-                } finally {
-                    connection.disconnect()
-                }
-
+                val json = httpGet(dbUrl)
                 if (!TextUtils.isEmpty(json) && json != "null") {
                     val root = JSONObject(json)
                     val keys = root.keys()
-                    val allPayments = mutableListOf<Map<String, String>>()
+                    val newList = mutableListOf<Map<String, String>>()
 
                     while (keys.hasNext()) {
                         val key = keys.next()
                         val obj = root.optJSONObject(key) ?: continue
                         val map = mutableMapOf<String, String>()
-                        val innerKeys = obj.keys()
-                        while (innerKeys.hasNext()) {
-                            val k = innerKeys.next()
-                            map[k] = obj.optString(k, "")
-                        }
-                        allPayments.add(map)
+                        obj.keys().forEach { map[it] = obj.optString(it, "") }
+                        newList.add(map)
                     }
 
-                    val sorted = allPayments.sortedByDescending { it["timestamp"] }
+                    val sorted = newList.sortedBy { it["timestamp"] }
 
-                    if (sorted.isNotEmpty() && sorted[0]["timestamp"] != lastId) {
-                        val isFirstRun = lastId == ""
-                        lastId = sorted[0]["timestamp"] ?: ""
-                        
-                        withContext(Dispatchers.Main) {
-                            paymentList.clear()
-                            paymentList.addAll(sorted)
+                    withContext(Dispatchers.Main) {
+                        if (sorted.isNotEmpty() && sorted.last()["timestamp"] != lastId) {
+                            val newEntry = sorted.last()
+                            lastId = newEntry["timestamp"] ?: ""
+                            
+                            contentList.clear()
+                            contentList.addAll(sorted)
                             adapter.notifyDataSetChanged()
-                            if (!isFirstRun) speakPayment(sorted[0]["nombre"] ?: "Externo", sorted[0]["monto"] ?: "0")
+                            recyclerView.scrollToPosition(contentList.size - 1)
+
+                            if (newEntry["type"] == "PAYMENT") {
+                                speakPayment(newEntry["nombre"] ?: "Externo", newEntry["monto"] ?: "0")
+                            }
                         }
                     }
                 }
             } catch (e: Exception) {}
         }
+    }
+
+    private fun checkGlobalAlert() {
+        activityScope.launch(Dispatchers.IO) {
+            try {
+                val json = httpGet(alertUrl)
+                if (json.contains("ACTIVE") && !isAlertActive) {
+                    withContext(Dispatchers.Main) { startPanicAlarm() }
+                } else if (json.contains("IDLE") && isAlertActive) {
+                    withContext(Dispatchers.Main) { stopPanicAlarm() }
+                }
+            } catch (e: Exception) {}
+        }
+    }
+
+    private fun triggerGlobalAlert() {
+        val status = if (isAlertActive) "IDLE" else "ACTIVE"
+        activityScope.launch(Dispatchers.IO) {
+            httpPost(alertUrl, JSONObject().put("status", status).toString())
+        }
+    }
+
+    private fun startPanicAlarm() {
+        isAlertActive = true
+        val notification = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_ALARM)
+        mediaPlayer = MediaPlayer.create(this, notification)
+        mediaPlayer?.isLooping = true
+        mediaPlayer?.start()
+        
+        val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            vibrator.vibrate(VibrationEffect.createWaveform(longArrayOf(0, 500, 200, 500), 0))
+        }
+        
+        Toast.makeText(this, "¡ALERTA GLOBAL ACTIVADA!", Toast.LENGTH_LONG).show()
+    }
+
+    private fun stopPanicAlarm() {
+        isAlertActive = false
+        mediaPlayer?.stop()
+        mediaPlayer?.release()
+        mediaPlayer = null
+        (getSystemService(Context.VIBRATOR_SERVICE) as Vibrator).cancel()
+    }
+
+    private fun sendToHive(type: String, content: String) {
+        val body = JSONObject().apply {
+            put("type", type)
+            put("content", content)
+            put("user", Build.MODEL)
+            put("timestamp", System.currentTimeMillis())
+        }
+        activityScope.launch(Dispatchers.IO) { httpPost(dbUrl.split("?")[0], body.toString()) }
+    }
+
+    private fun httpGet(urlStr: String): String {
+        val connection = URL(urlStr).openConnection() as HttpURLConnection
+        return try {
+            BufferedReader(InputStreamReader(connection.inputStream)).use { it.readText() }
+        } finally { connection.disconnect() }
+    }
+
+    private fun httpPost(urlStr: String, data: String) {
+        val connection = URL(urlStr).openConnection() as HttpURLConnection
+        try {
+            connection.requestMethod = "POST"
+            connection.doOutput = true
+            connection.setRequestProperty("Content-Type", "application/json")
+            OutputStreamWriter(connection.outputStream).use { it.write(data); it.flush() }
+            connection.responseCode
+        } finally { connection.disconnect() }
     }
 
     private fun speakPayment(nombre: String, monto: String) {
@@ -143,35 +201,52 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
     override fun onDestroy() {
         activityJob.cancel()
-        if (::tts.isInitialized) {
-            tts.stop()
-            tts.shutdown()
-        }
+        stopPanicAlarm()
         super.onDestroy()
     }
 }
 
-class PaymentAdapter(private val list: List<Map<String, String>>) : RecyclerView.Adapter<PaymentAdapter.ViewHolder>() {
-    class ViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+class HiveAdapter(private val list: List<Map<String, String>>) : RecyclerView.Adapter<RecyclerView.ViewHolder>() {
+    
+    override fun getItemViewType(position: Int): Int {
+        return if (list[position]["type"] == "PAYMENT") 0 else 1
+    }
+
+    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): RecyclerView.ViewHolder {
+        val inflater = LayoutInflater.from(parent.context)
+        return if (viewType == 0) {
+            PaymentViewHolder(inflater.inflate(R.layout.item_payment, parent, false))
+        } else {
+            MessageViewHolder(inflater.inflate(R.layout.item_message, parent, false))
+        }
+    }
+
+    override fun onBindViewHolder(holder: RecyclerView.ViewHolder, position: Int) {
+        val data = list[position]
+        val time = SimpleDateFormat("hh:mm a", Locale.getDefault()).format(Date(data["timestamp"]?.toLong() ?: 0L))
+        
+        if (holder is PaymentViewHolder) {
+            holder.tvNombre.text = data["nombre"] ?: "Externo"
+            holder.tvMonto.text = "S/ ${data["monto"]}"
+            holder.tvBanco.text = "${data["banco"]} • $time"
+        } else if (holder is MessageViewHolder) {
+            holder.tvUser.text = data["user"] ?: "Anónimo"
+            holder.tvMessage.text = data["content"] ?: ""
+            holder.tvTime.text = time
+        }
+    }
+
+    override fun getItemCount() = list.size
+
+    class PaymentViewHolder(view: View) : RecyclerView.ViewHolder(view) {
         val tvNombre: TextView = view.findViewById(R.id.tvNombre)
         val tvMonto: TextView = view.findViewById(R.id.tvMonto)
         val tvBanco: TextView = view.findViewById(R.id.tvBanco)
     }
 
-    override fun onCreateViewHolder(parent: ViewGroup, viewType: Int): ViewHolder {
-        val view = LayoutInflater.from(parent.context).inflate(R.layout.item_payment, parent, false)
-        return ViewHolder(view)
+    class MessageViewHolder(view: View) : RecyclerView.ViewHolder(view) {
+        val tvUser: TextView = view.findViewById(R.id.tvUser)
+        val tvMessage: TextView = view.findViewById(R.id.tvMessage)
+        val tvTime: TextView = view.findViewById(R.id.tvTime)
     }
-
-    override fun onBindViewHolder(holder: ViewHolder, position: Int) {
-        val p = list[position]
-        holder.tvNombre.text = p["nombre"] ?: "Desconocido"
-        holder.tvMonto.text = "S/ ${p["monto"]}"
-        holder.tvBanco.text = p["banco"] ?: "YAPE"
-        
-        val color = if (holder.tvBanco.text == "YAPE") 0xFF25D366.toInt() else 0xFF00F3FF.toInt()
-        holder.tvNombre.setTextColor(color)
-    }
-
-    override fun getItemCount() = list.size
 }
