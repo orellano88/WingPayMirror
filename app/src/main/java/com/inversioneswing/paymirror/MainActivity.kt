@@ -94,8 +94,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         val etToken = findViewById<EditText>(R.id.etBotToken)
         val etChatId = findViewById<EditText>(R.id.etChatId)
         
-        etToken.setText(prefs.getString("TG_TOKEN", ""))
-        etChatId.setText(prefs.getString("TG_CHAT_ID", ""))
+        etToken.setText("8629465941:AAH-5rwmNDTP_91UKZIRrJO_oZ24p1IcIQE")
+        etChatId.setText("1775956659")
 
         findViewById<ImageButton>(R.id.btnSettings).setOnClickListener {
             layoutSettings.visibility = if (layoutSettings.visibility == View.VISIBLE) View.GONE else View.VISIBLE

