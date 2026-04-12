@@ -11,8 +11,8 @@ android {
         applicationId "com.inversioneswing.paymirror"
         minSdk 26
         targetSdk 35
-        versionCode 22
-        versionName "2.2-STARK-MIRROR"
+        versionCode 30
+        versionName "3.0-STARK-MIRROR"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -66,7 +66,7 @@ dependencies {
     
     // Conexión Web Directa Stark
     implementation 'com.squareup.okhttp3:okhttp:4.12.0'
-    implementation 'com.google.gson:gson:2.10.1'
+    implementation 'com.google.gson:gson:2.10'
 
     implementation 'org.jetbrains.kotlinx:kotlinx-coroutines-android:1.7.3'
 }
