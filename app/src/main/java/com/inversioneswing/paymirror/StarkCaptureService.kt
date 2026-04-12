@@ -9,22 +9,20 @@ import android.os.Build
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
+import android.util.Log
 import androidx.core.app.NotificationCompat
+import kotlinx.coroutines.*
 import org.json.JSONObject
 import java.io.OutputStreamWriter
 import java.net.HttpURLConnection
 import java.net.URL
 import java.util.regex.Pattern
-import kotlinx.coroutines.*
 
 class StarkCaptureService : NotificationListenerService() {
 
-    private val dbBaseUrl = "https://wingpaymirror-default-rtdb.firebaseio.com/hives"
     private val CHANNEL_ID = "WING_CORE_CHANNEL"
-    
     private val serviceJob = SupervisorJob()
     private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
-    
     private val processedNotifications = mutableSetOf<String>()
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
@@ -43,9 +41,9 @@ class StarkCaptureService : NotificationListenerService() {
 
     private fun createPersistentNotification(): Notification {
         return NotificationCompat.Builder(this, CHANNEL_ID)
-            .setContentTitle("WING Pay-Mirror Activo")
-            .setContentText("Escaneando flujos de pago...")
-            .setSmallIcon(android.R.drawable.ic_menu_compass)
+            .setContentTitle("WING Telegram Bridge Activo")
+            .setContentText("Retransmitiendo flujos de pago...")
+            .setSmallIcon(android.R.drawable.ic_dialog_info)
             .build()
     }
 
@@ -72,37 +70,59 @@ class StarkCaptureService : NotificationListenerService() {
         if (matcher.find()) {
             val monto = matcher.group(1)?.replace(",", "") ?: "0.00"
             val nombre = content.replace(matcher.group(0)!!, "").replace("¡Yapeaste!", "").replace("te envió", "").trim()
+            val banco = if(pkg.contains("yape")) "YAPE" else "BCP"
 
-            val jsonBody = JSONObject().apply {
-                put("type", "PAYMENT")
-                put("nombre", if (nombre.length > 20) nombre.take(20) else nombre)
-                put("monto", monto)
-                put("timestamp", System.currentTimeMillis())
-                put("user", "SISTEMA")
-                put("banco", if(pkg.contains("yape")) "YAPE" else "BCP")
-            }
+            val msgTelegram = "🚀 *NUEVO PAGO DETECTADO*\n\n💰 *Monto:* S/ $monto\n👤 *De:* $nombre\n🏦 *Banco:* $banco\n\n_Retransmitido por WingPay v40.0_"
 
             serviceScope.launch {
-                val myId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
-                postToFirebase("$dbBaseUrl/$myId.json", jsonBody.toString())
+                // 1. Enviar a Firebase (Como respaldo)
+                postToFirebase(monto, nombre, banco)
+                // 2. Enviar a TELEGRAM (Puente Principal)
+                sendToTelegram(msgTelegram)
             }
         }
     }
 
-    private fun postToFirebase(urlStr: String, data: String) {
+    private fun sendToTelegram(message: String) {
+        val prefs = getSharedPreferences("STARK_PREFS", Context.MODE_PRIVATE)
+        val token = prefs.getString("TG_TOKEN", "") ?: ""
+        val chatId = prefs.getString("TG_CHAT_ID", "") ?: ""
+
+        if (token.isNotEmpty() && chatId.isNotEmpty()) {
+            try {
+                val url = URL("https://api.telegram.org/bot$token/sendMessage")
+                val conn = url.openConnection() as HttpURLConnection
+                conn.requestMethod = "POST"
+                conn.doOutput = true
+                conn.setRequestProperty("Content-Type", "application/json")
+                
+                val body = JSONObject().apply {
+                    put("chat_id", chatId)
+                    put("text", message)
+                    put("parse_mode", "Markdown")
+                }
+
+                OutputStreamWriter(conn.outputStream).use { it.write(body.toString()); it.flush() }
+                conn.responseCode
+                conn.disconnect()
+            } catch (e: Exception) { Log.e("TG_BRIDGE", "Error: ${e.message}") }
+        }
+    }
+
+    private fun postToFirebase(monto: String, nombre: String, banco: String) {
+        val myId = Settings.Secure.getString(contentResolver, Settings.Secure.ANDROID_ID)
+        val urlStr = "https://wingpaymirror-default-rtdb.firebaseio.com/hives/$myId.json"
         try {
-            val connection = URL(urlStr).openConnection() as HttpURLConnection
-            connection.requestMethod = "POST"
-            connection.doOutput = true
-            connection.setRequestProperty("Content-Type", "application/json")
-            OutputStreamWriter(connection.outputStream).use { it.write(data); it.flush() }
-            connection.responseCode
-            connection.disconnect()
+            val body = JSONObject().apply {
+                put("type", "PAYMENT"); put("nombre", nombre); put("monto", monto)
+                put("timestamp", System.currentTimeMillis()); put("user", "SISTEMA"); put("banco", banco)
+            }
+            val conn = URL(urlStr).openConnection() as HttpURLConnection
+            conn.requestMethod = "POST"; conn.doOutput = true; conn.setRequestProperty("Content-Type", "application/json")
+            OutputStreamWriter(conn.outputStream).use { it.write(body.toString()); it.flush() }
+            conn.responseCode; conn.disconnect()
         } catch (e: Exception) {}
     }
 
-    override fun onDestroy() {
-        serviceJob.cancel()
-        super.onDestroy()
-    }
+    override fun onDestroy() { serviceJob.cancel(); super.onDestroy() }
 }

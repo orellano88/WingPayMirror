@@ -21,7 +21,7 @@
             <TextView
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="WING COMMAND"
+                android:text="WING COMMAND v40.0"
                 android:textColor="#FFFFFF"
                 android:textStyle="bold"
                 android:textSize="16sp"/>
@@ -29,7 +29,7 @@
                 android:id="@+id/tvRoleBadge"
                 android:layout_width="wrap_content"
                 android:layout_height="wrap_content"
-                android:text="CARGANDO..."
+                android:text="TELEGRAM BRIDGE ACTIVE"
                 android:textColor="#CCFFFFFF"
                 android:textSize="9sp"
                 android:textStyle="bold"
@@ -39,51 +39,76 @@
         </LinearLayout>
 
         <ImageButton
-            android:id="@+id/btnPanic"
+            android:id="@+id/btnSettings"
             android:layout_width="45dp"
             android:layout_height="45dp"
             android:layout_alignParentEnd="true"
             android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@android:drawable/ic_lock_idle_alarm"
-            android:tint="#FFFFFF"
-            android:layout_centerVertical="true"/>
-            
-        <ImageButton
-            android:id="@+id/btnQR"
-            android:layout_width="45dp"
-            android:layout_height="45dp"
-            android:layout_toStartOf="@id/btnPanic"
-            android:layout_marginEnd="8dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@android:drawable/ic_menu_camera"
+            android:src="@android:drawable/ic_menu_manage"
             android:tint="#FFFFFF"
             android:layout_centerVertical="true"/>
     </RelativeLayout>
 
-    <!-- FOOTER INVERSIONES WING -->
+    <!-- PANEL DE CONFIGURACIÓN TELEGRAM (OCULTO POR DEFECTO) -->
     <LinearLayout
-        android:id="@+id/footer"
+        android:id="@+id/layoutSettings"
         android:layout_width="match_parent"
-        android:layout_height="30dp"
-        android:layout_alignParentBottom="true"
+        android:layout_height="wrap_content"
+        android:layout_below="@id/header"
         android:background="#FFFFFF"
-        android:gravity="center"
-        android:elevation="8dp">
+        android:orientation="vertical"
+        android:padding="16dp"
+        android:visibility="gone"
+        android:elevation="2dp">
+        
         <TextView
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
-            android:text="INVERSIONES WING — SISTEMA DE ESPEJO NEURONAL"
-            android:textColor="#99000000"
-            android:textSize="9sp"
-            android:textStyle="bold"/>
+            android:text="Configuración de Telegram"
+            android:textStyle="bold"
+            android:textColor="#FF0000"
+            android:layout_marginBottom="8dp"/>
+
+        <EditText
+            android:id="@+id/etBotToken"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Bot Token (de @BotFather)"
+            android:textSize="12sp"/>
+
+        <EditText
+            android:id="@+id/etChatId"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:hint="Chat ID (de @userinfobot)"
+            android:textSize="12sp"/>
+
+        <Button
+            android:id="@+id/btnSaveSettings"
+            android:layout_width="match_parent"
+            android:layout_height="wrap_content"
+            android:text="GUARDAR ENLACE NEURONAL"
+            android:backgroundTint="#FF0000"
+            android:textColor="#FFFFFF"
+            android:layout_marginTop="8dp"/>
     </LinearLayout>
 
-    <!-- BARRA DE MENSAJES COMPLETA (ESTILO WHATSAPP) -->
+    <!-- LISTA DE CHAT -->
+    <androidx.recyclerview.widget.RecyclerView
+        android:id="@+id/recyclerView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:layout_below="@id/layoutSettings"
+        android:layout_above="@+id/bottom_bar"
+        android:padding="8dp"
+        android:clipToPadding="false"/>
+
+    <!-- BARRA DE MENSAJES -->
     <LinearLayout
         android:id="@+id/bottom_bar"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
-        android:layout_above="@id/footer"
+        android:layout_alignParentBottom="true"
         android:orientation="horizontal"
         android:padding="8dp"
         android:background="#F0F2F5"
@@ -105,22 +130,10 @@
             android:background="@drawable/bg_whatsapp_bubble"
             android:backgroundTint="#FFFFFF"
             android:hint="Escribe un mensaje..."
-            android:textColorHint="#99000000"
             android:textColor="#000000"
             android:padding="12dp"
             android:layout_marginHorizontal="4dp"
-            android:maxLines="4"
-            android:textSize="14sp"
-            android:elevation="2dp"/>
-
-        <ImageButton
-            android:id="@+id/btnAudio"
-            android:layout_width="40dp"
-            android:layout_height="40dp"
-            android:background="?attr/selectableItemBackgroundBorderless"
-            android:src="@android:drawable/ic_btn_speak_now"
-            android:tint="#666666"
-            android:layout_marginEnd="4dp"/>
+            android:textSize="14sp"/>
 
         <ImageButton
             android:id="@+id/btnSend"
@@ -128,21 +141,9 @@
             android:layout_height="45dp"
             android:background="@drawable/ic_whatsapp_red"
             android:src="@android:drawable/ic_menu_send"
-            android:padding="10dp"
-            android:scaleType="centerInside"
             android:tint="#FFFFFF"
-            android:elevation="4dp"/>
+            android:padding="10dp"/>
     </LinearLayout>
-
-    <!-- LISTA DE CHAT -->
-    <androidx.recyclerview.widget.RecyclerView
-        android:id="@+id/recyclerView"
-        android:layout_width="match_parent"
-        android:layout_height="match_parent"
-        android:layout_below="@id/header"
-        android:layout_above="@id/bottom_bar"
-        android:padding="8dp"
-        android:clipToPadding="false"/>
 
     <!-- OVERLAY DE ALERTA -->
     <View
