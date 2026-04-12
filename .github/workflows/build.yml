@@ -15,13 +15,9 @@ jobs:
       with:
         java-version: '17'
         distribution: 'temurin'
+        cache: 'gradle'
 
-    - name: Instalar Gradle 8.5 Nativo
+    - name: Construir con Gradle Stark
       run: |
-        wget -q https://services.gradle.org/distributions/gradle-8.5-bin.zip
-        sudo unzip -d /opt/gradle gradle-8.5-bin.zip
-        echo "GRADLE_HOME=/opt/gradle/gradle-8.5" >> $GITHUB_ENV
-        echo "/opt/gradle/gradle-8.5/bin" >> $GITHUB_PATH
-
-    - name: Construir APK de PayMirror
-      run: gradle assembleDebug --stacktrace
+        chmod +x gradlew
+        ./gradlew assembleDebug --stacktrace
