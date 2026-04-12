@@ -17,7 +17,12 @@ jobs:
         distribution: 'temurin'
         cache: 'gradle'
 
-    - name: Construir con Gradle Stark
+    - name: Instalar Gradle 8.5 Oficial
       run: |
-        chmod +x gradlew
-        ./gradlew assembleDebug --stacktrace
+        wget -q https://services.gradle.org/distributions/gradle-8.5-bin.zip
+        sudo unzip -d /opt/gradle gradle-8.5-bin.zip
+        echo "/opt/gradle/gradle-8.5/bin" >> $GITHUB_PATH
+
+    - name: Construir con Motor Stark 8.5
+      run: |
+        gradle assembleDebug --stacktrace
