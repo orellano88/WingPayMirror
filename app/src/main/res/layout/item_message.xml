@@ -30,7 +30,10 @@
             android:layout_height="wrap_content"
             android:textColor="#303030"
             android:textSize="16sp"
-            android:text="Mensaje de chat..."/>
+            android:maxWidth="280dp"
+            android:text="Mensaje de chat..."
+            android:breakStrategy="high_quality"
+            android:hyphenationFrequency="full"/>
 
         <TextView
             android:id="@+id/tvTime"

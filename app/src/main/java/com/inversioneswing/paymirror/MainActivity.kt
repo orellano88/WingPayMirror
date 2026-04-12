@@ -95,10 +95,11 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
 
         val et = findViewById<EditText>(R.id.etMessage)
         findViewById<ImageButton>(R.id.btnSend).setOnClickListener {
-            val txt = et.text.toString()
+            val txt = et.text.toString().trim()
             if (txt.isNotEmpty()) {
                 sendToHive("MESSAGE", txt)
-                et.text.clear()
+                et.setText("") // Limpieza total del TextInput (equivalente a su solicitud)
+                vibrate(50)
             }
         }
 
@@ -165,9 +166,17 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             val isFirst = lastUpdateTag == ""
             lastUpdateTag = currentTag
             withContext(Dispatchers.Main) {
-                contentList.clear(); contentList.addAll(sorted)
+                contentList.clear()
+                contentList.addAll(sorted)
                 adapter.notifyDataSetChanged()
-                recyclerView.scrollToPosition(contentList.size - 1)
+                
+                // Función update_scroll: Autoscroll al final con un pequeño delay para asegurar renderizado
+                recyclerView.post {
+                    if (contentList.isNotEmpty()) {
+                        recyclerView.smoothScrollToPosition(contentList.size - 1)
+                    }
+                }
+
                 if (!isFirst && sorted.last()["type"] == "PAYMENT") {
                     speakPayment(sorted.last()["nombre"] ?: "Externo", sorted.last()["monto"] ?: "0")
                 }

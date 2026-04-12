@@ -11,8 +11,8 @@ android {
         applicationId "com.inversioneswing.paymirror"
         minSdk 26
         targetSdk 35
-        versionCode 320
-        versionName "32.0-STARK-HIVE-MASTER-FIX"
+        versionCode 330
+        versionName "33.0-STARK-QWEN-UI-FIX"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
