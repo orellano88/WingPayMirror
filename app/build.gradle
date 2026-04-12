@@ -5,14 +5,14 @@ plugins {
 
 android {
     namespace 'com.inversioneswing.paymirror'
-    compileSdk 34
+    compileSdk 35
 
     defaultConfig {
         applicationId "com.inversioneswing.paymirror"
         minSdk 26
-        targetSdk 34
-        versionCode 1
-        versionName "1.0-STARK-MIRROR"
+        targetSdk 35
+        versionCode 18
+        versionName "1.8-STARK-MIRROR"
 
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
         vectorDrawables {
@@ -20,12 +20,23 @@ android {
         }
     }
 
+    signingConfigs {
+        release {
+            storeFile file(System.getenv("SIGNING_STORE_FILE") ?: "../wingterm.jks")
+            storePassword System.getenv("SIGNING_STORE_PASSWORD") ?: "wingterm2026"
+            keyAlias System.getenv("SIGNING_KEY_ALIAS") ?: "wingterm"
+            keyPassword System.getenv("SIGNING_KEY_PASSWORD") ?: "wingterm2026"
+        }
+    }
+
     buildTypes {
         release {
-            minifyEnabled false
+            signingConfig signingConfigs.release
+            minifyEnabled true
             proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
         debug {
+            signingConfig signingConfigs.release
             minifyEnabled false
         }
     }
