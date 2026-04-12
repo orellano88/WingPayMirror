@@ -1,12 +1,11 @@
 <?xml version="1.0" encoding="utf-8"?>
-<LinearLayout android:id="@+id/llBubble" xmlns:android="http://schemas.android.com/apk/res/android"
-    android:id="@+id/llContainerOuter"
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="match_parent"
     android:layout_height="wrap_content"
     android:orientation="vertical"
     android:padding="8dp">
 
-    <LinearLayout android:id="@+id/llBubble"
+    <LinearLayout
         android:id="@+id/llBubble"
         android:layout_width="wrap_content"
         android:layout_height="wrap_content"
@@ -55,7 +54,5 @@
                 android:src="@android:drawable/ic_menu_send"
                 android:tint="#25D366"/>
         </RelativeLayout>
-
     </LinearLayout>
-
 </LinearLayout>
