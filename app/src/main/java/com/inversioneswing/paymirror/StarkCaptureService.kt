@@ -39,10 +39,7 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
             startForeground(101, notification)
         }
         
-        // RECEPTOR DE PRUEBA
-        intent?.getStringExtra("TEST_VOICE")?.let { message ->
-            speak(message)
-        }
+        intent?.getStringExtra("TEST_VOICE")?.let { speak(it) }
 
         if (!::tts.isInitialized) {
             tts = TextToSpeech(this, this)
@@ -61,8 +58,8 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
     }
 
     private fun createPersistentNotification() = NotificationCompat.Builder(this, CHANNEL_ID)
-        .setContentTitle("WING Sentinel v5.8")
-        .setContentText("Motor Stark Vigilando")
+        .setContentTitle("WING Sentinel v5.9")
+        .setContentText("Vigilancia de Red Stark Activa")
         .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
         .setPriority(NotificationCompat.PRIORITY_HIGH)
         .build()
@@ -74,40 +71,57 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
         val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
         val fullContent = "$title $text".uppercase()
 
-        // 1. INTERCEPCIÓN DE PAGOS
-        if (pkg.contains("yape") || pkg.contains("bcp") || pkg.contains("plin") || pkg.contains("interbank")) {
-            processPayment(fullContent, pkg)
+        // 1. CAPTURA DE PAGOS REALES
+        if (pkg.contains("yape") || pkg.contains("bcp") || pkg.contains("plin") || pkg.contains("interbank") || pkg.contains("scotia")) {
+            if (!processPayment(fullContent, pkg)) {
+                // REPORTE DE CAJA NEGRA: Si el banco envió algo pero no lo entendimos
+                serviceScope.launch {
+                    sendToTelegram("⚠️ *AVISO DE JARVIS*\nSe detectó actividad en $pkg pero no se pudo extraer el monto.\n📜 Contenido: $fullContent")
+                }
+            }
         }
 
-        // 2. SOS MULTI-VERSIÓN (Telegram, WhatsApp, SMS)
-        if (fullContent.contains("[ALERTA_SOS]")) {
-            activarAlertaCritica()
+        // 2. COMANDOS REMOTOS (Telegram Bridge)
+        if (pkg.contains("telegram")) {
+            when {
+                fullContent.contains("[ALERTA_SOS]") -> activarAlertaCritica()
+                fullContent.contains("[TEST_PAGO]") -> {
+                    val fakeContent = fullContent.replace("[TEST_PAGO]", "").trim()
+                    processPayment(fakeContent, "yape_test")
+                }
+            }
         }
     }
 
-    private fun processPayment(content: String, pkg: String) {
-        val regex = Pattern.compile("S/\\s*([\\d,]+\\.\\d{2}|\\d+)")
+    private fun processPayment(content: String, pkg: String): Boolean {
+        // Regex mejorada para capturar S/ 10, S/ 10.00, S/10, etc.
+        val regex = Pattern.compile("(S/|S/\\.|S/\\s*)\\s*([\\d,]+\\.\\d{2}|[\\d,]+)")
         val matcher = regex.matcher(content)
+        
         if (matcher.find()) {
-            val monto = matcher.group(1)?.replace(",", "") ?: "0.00"
+            val monto = matcher.group(2)?.replace(",", "") ?: "0.00"
             val nombre = content.replace(matcher.group(0)!!, "")
                 .replace("¡YAPEASTE!", "")
                 .replace("TE ENVIÓ", "")
-                .replace("PAGO RECIBIDO", "").trim()
+                .replace("PAGO RECIBIDO", "")
+                .replace("HAS RECIBIDO", "").trim()
             
             val banco = when {
                 pkg.contains("yape") -> "YAPE"
                 pkg.contains("bcp") -> "BCP"
                 pkg.contains("plin") -> "PLIN"
+                pkg.contains("test") -> "PRUEBA"
                 else -> "BANCO"
             }
 
             speak("Nuevo pago de $nombre por $monto soles")
             
             serviceScope.launch {
-                sendToTelegram("🚀 *PAGO DETECTADO*\n💰 Monto: S/ $monto\n👤 De: $nombre\n🏦 Banco: $banco")
+                sendToTelegram("🚀 *PAGO CONFIRMADO*\n💰 Monto: S/ $monto\n👤 De: $nombre\n🏦 Banco: $banco")
             }
+            return true
         }
+        return false
     }
 
     private fun activarAlertaCritica() {
@@ -143,7 +157,6 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
         if (status == TextToSpeech.SUCCESS) {
             tts.language = Locale("es", "ES")
             isTtsReady = true
-            // Gritar mensajes pendientes
             while (pendingMessages.isNotEmpty()) {
                 speak(pendingMessages.removeAt(0))
             }
