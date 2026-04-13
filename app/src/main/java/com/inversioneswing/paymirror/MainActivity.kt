@@ -5,10 +5,15 @@ import android.net.Uri
 import android.os.*
 import android.provider.Settings
 import android.view.Gravity
+import android.view.View
 import android.widget.*
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import android.graphics.Typeface
+import org.json.JSONObject
+import java.io.OutputStreamWriter
+import java.net.HttpURLConnection
+import java.net.URL
 
 class MainActivity : AppCompatActivity() {
 
@@ -57,13 +62,6 @@ class MainActivity : AppCompatActivity() {
                 }
             }
         }
-        
-        layout.addView(title)
-        layout.addView(btnSOS)
-        val space = Space(this).apply { layoutParams = LinearLayout.LayoutParams(1, 40) }
-        layout.addView(space)
-        layout.addView(btnTestVoice)
-        // ... (resto de botones)
 
         val btnAutoStart = Button(this).apply {
             text = "CONFIGURAR INICIO AUTOMÁTICO (HUAWEI)"
@@ -82,10 +80,17 @@ class MainActivity : AppCompatActivity() {
         }
 
         layout.addView(title)
-        layout.addView(btnAutoStart)
+        layout.addView(btnSOS)
+        val space0 = Space(this).apply { layoutParams = LinearLayout.LayoutParams(1, 40) }
+        layout.addView(space0)
+        layout.addView(btnTestVoice)
         val space1 = Space(this).apply { layoutParams = LinearLayout.LayoutParams(1, 40) }
         layout.addView(space1)
+        layout.addView(btnAutoStart)
+        val space2 = Space(this).apply { layoutParams = LinearLayout.LayoutParams(1, 40) }
+        layout.addView(space2)
         layout.addView(btnSync)
+        
         setContentView(layout)
 
         checkInitialSystems()
@@ -126,7 +131,9 @@ class MainActivity : AppCompatActivity() {
                     responseCode; disconnect()
                 }
                 runOnUiThread { Toast.makeText(this, "SOS ENVIADO A LA RED", Toast.LENGTH_SHORT).show() }
-            } catch (e: Exception) {}
+            } catch (e: Exception) {
+                runOnUiThread { Toast.makeText(this, "ERROR DE RED STARK", Toast.LENGTH_SHORT).show() }
+            }
         }.start()
     }
 
