@@ -2,34 +2,28 @@ package com.inversioneswing.paymirror
 
 import android.Manifest
 import android.app.Activity
+import android.app.AlertDialog
 import android.content.*
 import android.content.pm.PackageManager
-import android.content.res.ColorStateList
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Color
-import android.media.AudioAttributes
 import android.media.AudioManager
-import android.media.MediaPlayer
-import android.media.RingtoneManager
 import android.net.Uri
 import android.os.*
 import android.provider.MediaStore
 import android.provider.Settings
 import android.speech.tts.TextToSpeech
+import android.text.TextUtils
 import android.util.Base64
 import android.view.*
 import android.widget.*
 import androidx.activity.result.contract.ActivityResultContracts
-import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import androidx.core.app.ActivityCompat
+import androidx.core.content.ContextCompat
 import androidx.recyclerview.widget.LinearLayoutManager
 import androidx.recyclerview.widget.RecyclerView
-import com.google.zxing.BarcodeFormat
-import com.google.zxing.MultiFormatWriter
-import com.journeyapps.barcodescanner.BarcodeEncoder
-import com.journeyapps.barcodescanner.ScanContract
-import com.journeyapps.barcodescanner.ScanOptions
 import kotlinx.coroutines.*
 import org.json.JSONObject
 import java.io.*
@@ -70,8 +64,9 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         setContentView(R.layout.activity_main)
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         setupUI()
-        startNeuralSync()
-        requestImmortality()
+        
+        // --- ASISTENTE DE CONFIGURACIÓN STARK (v40.7) ---
+        checkPermissionsAndServices()
     }
 
     private fun setupUI() {
@@ -80,8 +75,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         recyclerView.layoutManager = LinearLayoutManager(this).apply { stackFromEnd = true }
         adapter = HiveAdapter(contentList)
         recyclerView.adapter = adapter
-        updateUIState()
-
+        
         findViewById<ImageButton>(R.id.btnSend).setOnClickListener {
             val et = findViewById<EditText>(R.id.etMessage)
             val txt = et.text.toString().trim()
@@ -90,14 +84,51 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         findViewById<ImageButton>(R.id.btnAttach).setOnClickListener { cameraLauncher.launch(Intent(MediaStore.ACTION_IMAGE_CAPTURE)) }
     }
 
+    private fun checkPermissionsAndServices() {
+        val missing = mutableListOf<String>()
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) missing.add(Manifest.permission.CAMERA)
+        
+        if (missing.isNotEmpty()) {
+            ActivityCompat.requestPermissions(this, missing.toTypedArray(), 100)
+        } else {
+            // Verificar Servicios de Sistema
+            if (!isNotificationServiceEnabled()) showServiceDialog("ACCESO A NOTIFICACIONES", Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+            else if (!isAccessibilityServiceEnabled()) showServiceDialog("SERVICIO DE ACCESIBILIDAD", Settings.ACTION_ACCESSIBILITY_SETTINGS)
+            else {
+                startNeuralSync()
+                requestImmortality()
+            }
+        }
+    }
+
+    private fun isNotificationServiceEnabled(): Boolean {
+        val cn = ComponentName(this, StarkCaptureService::class.java)
+        val flat = Settings.Secure.getString(contentResolver, "enabled_notification_listeners")
+        return flat != null && flat.contains(cn.flattenToString())
+    }
+
+    private fun isAccessibilityServiceEnabled(): Boolean {
+        val cn = ComponentName(this, StarkAccessibilityService::class.java)
+        val flat = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
+        return flat != null && flat.contains(cn.flattenToString())
+    }
+
+    private fun showServiceDialog(name: String, action: String) {
+        AlertDialog.Builder(this)
+            .setTitle("CONFIGURACIÓN STARK")
+            .setMessage("Sincronizando Sistemas... Pulse ACEPTAR para activar el $name de JARVIS. Sin esto, el aplicativo no podrá ver los pagos.")
+            .setCancelable(false)
+            .setPositiveButton("ACEPTAR") { _, _ ->
+                startActivity(Intent(action))
+                Toast.makeText(this, "Busque 'WingPay Mirror' y actívelo", Toast.LENGTH_LONG).show()
+            }.show()
+    }
+
     private fun requestImmortality() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
             if (!pm.isIgnoringBatteryOptimizations(packageName)) {
-                try { 
-                    val intent = Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply { data = Uri.parse("package:$packageName") }
-                    startActivity(intent) 
-                } catch (e: Exception) {}
+                try { startActivity(Intent(Settings.ACTION_REQUEST_IGNORE_BATTERY_OPTIMIZATIONS).apply { data = Uri.parse("package:$packageName") }) } catch (e: Exception) {}
             }
         }
     }
@@ -112,12 +143,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     }
 
     private suspend fun syncData() {
-        val json = try { 
-            val conn = URL("$dbBaseUrl/$neuralId.json?limitToLast=20").openConnection() as HttpURLConnection
-            conn.connectTimeout = 5000
-            conn.inputStream.bufferedReader().use { it.readText() }
-        } catch(e: Exception) { "" }
-        
+        val json = try { URL("$dbBaseUrl/$neuralId.json?limitToLast=20").openConnection().apply { connectTimeout=5000 }.inputStream.bufferedReader().use { it.readText() } } catch(e: Exception) { "" }
         if (TextUtils.isEmpty(json) || json == "null") return
         val root = JSONObject(json)
         val newList = mutableListOf<Map<String, String>>()
@@ -134,9 +160,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             withContext(Dispatchers.Main) {
                 contentList.clear(); contentList.addAll(sorted); adapter.notifyDataSetChanged()
                 if (contentList.isNotEmpty()) recyclerView.scrollToPosition(contentList.size - 1)
-                if (sorted.isNotEmpty() && sorted.last()["type"] == "PAYMENT") {
-                    speakPayment(sorted.last()["nombre"] ?: "Cliente", sorted.last()["monto"] ?: "0")
-                }
+                if (sorted.isNotEmpty() && sorted.last()["type"] == "PAYMENT") speakPayment(sorted.last()["nombre"] ?: "Cliente", sorted.last()["monto"] ?: "0")
             }
         }
     }
@@ -155,28 +179,16 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
     private fun speakPayment(n: String, m: String) { 
         if (isTtsReady) {
             try {
-                // FORZAR ALTAVOZ (v40.3.2)
                 audioManager.isSpeakerphoneOn = true
                 audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
                 val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
                 audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, maxVol, 0)
-                
-                val text = "Señor, atención. Nuevo pago de $n por $m soles."
-                tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "PAY_ID")
+                tts.speak("Señor, atención. Nuevo pago de $n por $m soles.", TextToSpeech.QUEUE_FLUSH, null, "PAY_ID")
             } catch (e: Exception) {}
         }
     }
 
-    private fun updateUIState() {
-        findViewById<TextView>(R.id.tvRoleBadge)?.text = "MASTER • ALTAVOZ ACTIVE"
-    }
-
-    override fun onInit(s: Int) { 
-        if (s == TextToSpeech.SUCCESS) { 
-            tts.language = Locale("es", "ES")
-            isTtsReady = true 
-        } 
-    }
+    override fun onInit(s: Int) { if (s == TextToSpeech.SUCCESS) { tts.language = Locale("es", "ES"); isTtsReady = true } }
     override fun onDestroy() { activityJob.cancel(); super.onDestroy() }
 }
 
