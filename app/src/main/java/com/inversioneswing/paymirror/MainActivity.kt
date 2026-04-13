@@ -13,39 +13,49 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        // DISEÑO DINÁMICO MINIMALISTA (v42.0)
+        // DISEÑO MAESTRO MINIMALISTA (v42.1)
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
-            setPadding(50, 50, 50, 50)
+            setPadding(60, 60, 60, 60)
             gravity = android.view.Gravity.CENTER
             backgroundColor = 0xFFF0F2F5.toInt()
         }
 
         val title = TextView(this).apply {
-            text = "WING SENTINEL v42.0"
-            textSize = 24f
+            text = "WING SENTINEL v42.1"
+            textSize = 26f
             setTextColor(0xFFFF0000.toInt())
             textStyle = android.graphics.Typeface.BOLD
-            setPadding(0, 0, 0, 50)
+            setPadding(0, 0, 0, 40)
         }
 
         val status = TextView(this).apply {
-            text = "ESTADO: VIGILANDO"
-            textSize = 16f
-            setTextColor(0xFF000000.toInt())
-            setPadding(0, 0, 0, 100)
+            text = "ENLACE TELEGRAM: ACTIVO\nALTAVOZ: STANDBY"
+            textSize = 14f
+            setTextColor(0xFF333333.toInt())
+            gravity = android.view.Gravity.CENTER
+            setPadding(0, 0, 0, 80)
         }
 
-        val btnSync = Button(this).apply {
-            text = "VERIFICAR ENLACE NEURONAL"
+        val btnCheck = Button(this).apply {
+            text = "VERIFICAR SISTEMAS"
             setBackgroundColor(0xFFFF0000.toInt())
             setTextColor(0xFFFFFFFF.toInt())
+            setPadding(40, 20, 40, 20)
             setOnClickListener { checkSystem() }
+        }
+
+        val footer = TextView(this).apply {
+            text = "JARVIS & QWEN — OPERACIÓN PURE"
+            textSize = 10f
+            setTextColor(0xFF999999.toInt())
+            setPadding(0, 100, 0, 0)
         }
 
         layout.addView(title)
         layout.addView(status)
-        layout.addView(btnSync)
+        layout.addView(btnCheck)
+        layout.addView(footer)
         setContentView(layout)
 
         checkSystem()
@@ -54,14 +64,15 @@ class MainActivity : AppCompatActivity() {
     private fun checkSystem() {
         if (!isNotificationServiceEnabled()) {
             AlertDialog.Builder(this)
-                .setTitle("ACTIVACIÓN NECESARIA")
-                .setMessage("Pulse ACEPTAR para encender el Oído de JARVIS (Acceso a Notificaciones).")
+                .setTitle("ACTIVACIÓN REQUERIDA")
+                .setMessage("Señor, debe encender el Oído de JARVIS. Seleccione 'WingPay Mirror' en la siguiente pantalla.")
+                .setCancelable(false)
                 .setPositiveButton("ACEPTAR") { _, _ ->
                     startActivity(Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS))
                 }.show()
         } else {
             requestBatteryOptimizationBypass()
-            Toast.makeText(this, "SISTEMAS OPERATIVOS", Toast.LENGTH_SHORT).show()
+            Toast.makeText(this, "SISTEMAS EN LÍNEA", Toast.LENGTH_SHORT).show()
         }
     }
 
