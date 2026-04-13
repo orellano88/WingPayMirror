@@ -28,6 +28,21 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
     private lateinit var tts: TextToSpeech
     private var isTtsReady = false
     private val pendingMessages = mutableListOf<String>()
+    private lateinit var wakeLock: PowerManager.WakeLock
+
+    override fun onCreate() {
+        super.onCreate()
+        val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
+        wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "WingPay:WakeLock")
+    }
+
+    private fun awakeAndSpeak(text: String) {
+        // Despertar procesador por 10 segundos
+        if (!wakeLock.isHeld) {
+            wakeLock.acquire(10 * 1000L)
+        }
+        speak(text)
+    }
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         createNotificationChannel()
@@ -118,9 +133,9 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
                 else -> "Banco"
             }
 
-            // HABLA NATURAL: "Nuevo pago de Juan Pérez por 10 soles 50"
+            // HABLA NATURAL CON DESPERTAR DE CPU
             val montoParaHablar = monto.replace(".", " soles ")
-            speak("Señor, nuevo pago de $nombre por $montoParaHablar céntimos")
+            awakeAndSpeak("Señor, nuevo pago de $nombre por $montoParaHablar céntimos")
             
             serviceScope.launch {
                 sendToTelegram("🚀 *PAGO CONFIRMADO*\n💰 Monto: S/ $monto\n👤 De: $nombre\n🏦 Banco: $banco")
@@ -131,7 +146,7 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
     }
 
     private fun activarAlertaCritica() {
-        speak("Alerta de pánico activada. Emergencia detectada en la red Stark.")
+        awakeAndSpeak("Alerta de pánico activada. Emergencia detectada en la red Stark.")
         val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val vibratorManager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
             vibratorManager.defaultVibrator
