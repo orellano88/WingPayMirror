@@ -1,8 +1,6 @@
 package com.inversioneswing.paymirror
 
-import android.app.Notification
-import android.app.NotificationChannel
-import android.app.NotificationManager
+import android.app.*
 import android.content.*
 import android.content.pm.ServiceInfo
 import android.os.*
@@ -11,8 +9,7 @@ import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.speech.tts.TextToSpeech
 import android.util.Log
-import android.os.Vibrator
-import android.os.VibrationEffect
+import android.media.AudioManager
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.*
 import org.json.JSONObject
@@ -39,9 +36,12 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
     }
 
     private fun awakeAndSpeak(text: String) {
-        if (!wakeLock.isHeld) {
-            wakeLock.acquire(15 * 1000L) // 15 segundos para dar tiempo a la oración
-        }
+        if (!wakeLock.isHeld) { wakeLock.acquire(15 * 1000L) }
+        
+        // FORZAR VOLUMEN (Solución Huawei)
+        val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+        am.setStreamVolume(AudioManager.STREAM_ALARM, am.getStreamMaxVolume(AudioManager.STREAM_ALARM), 0)
+        
         speak(text)
     }
 
@@ -68,8 +68,8 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
     }
 
     private fun createPersistentNotification() = NotificationCompat.Builder(this, CHANNEL_ID)
-        .setContentTitle("WING Sentinel v7.1")
-        .setContentText("Inteligencia Lingüística Activa")
+        .setContentTitle("WING Sentinel v7.2")
+        .setContentText("Sincronización Stark Perfecta")
         .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
         .setPriority(NotificationCompat.PRIORITY_HIGH)
         .build()
@@ -81,36 +81,36 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
         val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
         val fullContent = "$title $text"
 
-        // 1. CAPTURA DE PAGOS Y SOS
-        if (pkg.contains("yape") || pkg.contains("bcp") || pkg.contains("plin") || pkg.contains("interbank") || pkg.contains("telegram")) {
+        // GATILLO DE COMANDOS REMOTOS (Telegram)
+        if (pkg.contains("telegram")) {
+            if (fullContent.uppercase().contains("[TEST_PAGO]")) {
+                val fakeContent = fullContent.replace("[TEST_PAGO]", "", true).trim()
+                processSmartContent(fakeContent, "yape_test")
+                return
+            }
+            if (fullContent.uppercase().contains("[ALERTA_SOS]")) {
+                activarAlertaCritica()
+                return
+            }
+        }
+
+        // CAPTURA DE PAGOS REALES
+        if (pkg.contains("yape") || pkg.contains("bcp") || pkg.contains("plin") || pkg.contains("interbank")) {
             processSmartContent(fullContent, pkg)
         }
     }
 
     private fun processSmartContent(content: String, pkg: String) {
-        val upperContent = content.uppercase()
-
-        // DETECCIÓN SOS
-        if (upperContent.contains("[ALERTA_SOS]")) {
-            activarAlertaCritica()
-            return
-        }
-
-        // PARSER DE PAGOS (Regex Universal)
         val regex = Pattern.compile("(S/|S/\\.|S/\\s*)\\s*([\\d,]+\\.\\d{2}|[\\d,]+)")
         val matcher = regex.matcher(content)
         
         if (matcher.find()) {
             val montoRaw = matcher.group(2)?.replace(",", "") ?: "0.00"
-            
-            // LIMPIEZA DE NOMBRE (Parser Humano)
             var nombreRaw = content.replace(matcher.group(0)!!, "", true)
-                .replace("[TEST_PAGO]", "", true)
                 .replace("¡Yapeaste!", "", true)
                 .replace("te envió", "", true)
                 .replace("Pago recibido", "", true)
-                .replace("Has recibido", "", true)
-                .replace(Regex("[^\\p{L}\\s]"), "") // Eliminar emojis y símbolos
+                .replace(Regex("[^\\p{L}\\s]"), "") // Solo letras
                 .trim()
 
             if (nombreRaw.isEmpty()) nombreRaw = "un cliente"
@@ -120,16 +120,13 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
                 pkg.contains("yape") -> "Yape"
                 pkg.contains("bcp") -> "B C P"
                 pkg.contains("plin") -> "Plin"
-                else -> "su cuenta bancaria"
+                else -> "su cuenta"
             }
 
-            // PROCESADOR DE MONEDA
             val soles = montoRaw.split(".")[0]
             val centimos = if (montoRaw.contains(".")) montoRaw.split(".")[1] else "00"
             
-            // PLANTILLA HUMANA FINAL
             val mensajeFinal = "Señor, $nombreLimpio le ha enviado $soles soles con $centimos céntimos a través de $banco."
-            
             awakeAndSpeak(mensajeFinal)
             
             serviceScope.launch {
@@ -139,11 +136,11 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
     }
 
     private fun formatTitleCase(str: String): String {
-        return str.lowercase().split(" ").joinToString(" ") { it.replaceFirstChar { char -> char.uppercase() } }
+        return str.lowercase().split(" ").filter { it.isNotEmpty() }.joinToString(" ") { it.replaceFirstChar { char -> char.uppercase() } }
     }
 
     private fun activarAlertaCritica() {
-        awakeAndSpeak("Alerta de pánico activada. Emergencia detectada en la red Stark.")
+        awakeAndSpeak("Alerta de pánico activada en la red Stark.")
         val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
         vibrator.vibrate(VibrationEffect.createOneShot(5000, VibrationEffect.DEFAULT_AMPLITUDE))
     }
@@ -151,12 +148,9 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
     private fun speak(text: String) {
         if (isTtsReady) {
             val params = Bundle()
-            params.putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f)
-            params.putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, android.media.AudioManager.STREAM_ALARM)
-            tts.speak(text, TextToSpeech.QUEUE_ADD, params, "STARK_ID")
-        } else {
-            pendingMessages.add(text)
-        }
+            params.putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_ALARM)
+            tts.speak(text.lowercase(), TextToSpeech.QUEUE_ADD, params, "STARK_ID")
+        } else { pendingMessages.add(text) }
     }
 
     override fun onInit(status: Int) {
