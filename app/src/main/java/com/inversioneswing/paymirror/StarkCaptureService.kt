@@ -4,6 +4,7 @@ import android.app.Notification
 import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.*
+import android.content.pm.ServiceInfo
 import android.os.Build
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
@@ -21,7 +22,7 @@ import java.util.regex.Pattern
 
 class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitListener {
 
-    private val CHANNEL_ID = "WING_MINIMAL_CHANNEL"
+    private val CHANNEL_ID = "WING_OMEGA_CHANNEL"
     private val serviceJob = SupervisorJob()
     private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
     private lateinit var tts: TextToSpeech
@@ -29,22 +30,30 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         createNotificationChannel()
-        startForeground(1, createPersistentNotification())
+        val notification = createPersistentNotification()
+        
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            startForeground(101, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
+        } else {
+            startForeground(101, notification)
+        }
+        
         tts = TextToSpeech(this, this)
         return START_STICKY
     }
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(CHANNEL_ID, "WING Sentinel", NotificationManager.IMPORTANCE_LOW)
+            val channel = NotificationChannel(CHANNEL_ID, "WING Omega Sentinel", NotificationManager.IMPORTANCE_LOW)
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
     }
 
     private fun createPersistentNotification() = NotificationCompat.Builder(this, CHANNEL_ID)
-        .setContentTitle("WING Sentinel v42.0")
-        .setContentText("Vigilancia Activa")
+        .setContentTitle("WING Sentinel v43.0 (OMEGA)")
+        .setContentText("Intercepción en Segundo Plano Activa")
         .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
+        .setPriority(NotificationCompat.PRIORITY_LOW)
         .build()
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
