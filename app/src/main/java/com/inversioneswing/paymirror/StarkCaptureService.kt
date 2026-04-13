@@ -58,8 +58,8 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
     }
 
     private fun createPersistentNotification() = NotificationCompat.Builder(this, CHANNEL_ID)
-        .setContentTitle("WING Sentinel v5.9")
-        .setContentText("Vigilancia de Red Stark Activa")
+        .setContentTitle("WING Sentinel v6.0")
+        .setContentText("Voz Humana Sincronizada")
         .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
         .setPriority(NotificationCompat.PRIORITY_HIGH)
         .build()
@@ -69,24 +69,26 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
         val extras = sbn.notification.extras
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
         val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
-        val fullContent = "$title $text".uppercase()
+        
+        // Mantener original para hablar, y mayúsculas solo para buscar
+        val originalContent = "$title $text"
+        val searchContent = originalContent.uppercase()
 
         // 1. CAPTURA DE PAGOS REALES
         if (pkg.contains("yape") || pkg.contains("bcp") || pkg.contains("plin") || pkg.contains("interbank") || pkg.contains("scotia")) {
-            if (!processPayment(fullContent, pkg)) {
-                // REPORTE DE CAJA NEGRA: Si el banco envió algo pero no lo entendimos
+            if (!processPayment(originalContent, pkg)) {
                 serviceScope.launch {
-                    sendToTelegram("⚠️ *AVISO DE JARVIS*\nSe detectó actividad en $pkg pero no se pudo extraer el monto.\n📜 Contenido: $fullContent")
+                    sendToTelegram("⚠️ *AVISO DE JARVIS*\nSe detectó actividad en $pkg pero no se pudo extraer el monto.\n📜 Contenido: $originalContent")
                 }
             }
         }
 
-        // 2. COMANDOS REMOTOS (Telegram Bridge)
+        // 2. COMANDOS REMOTOS
         if (pkg.contains("telegram")) {
             when {
-                fullContent.contains("[ALERTA_SOS]") -> activarAlertaCritica()
-                fullContent.contains("[TEST_PAGO]") -> {
-                    val fakeContent = fullContent.replace("[TEST_PAGO]", "").trim()
+                searchContent.contains("[ALERTA_SOS]") -> activarAlertaCritica()
+                searchContent.contains("[TEST_PAGO]") -> {
+                    val fakeContent = originalContent.replace("[TEST_PAGO]", "", true).trim()
                     processPayment(fakeContent, "yape_test")
                 }
             }
@@ -94,27 +96,31 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
     }
 
     private fun processPayment(content: String, pkg: String): Boolean {
-        // Regex mejorada para capturar S/ 10, S/ 10.00, S/10, etc.
         val regex = Pattern.compile("(S/|S/\\.|S/\\s*)\\s*([\\d,]+\\.\\d{2}|[\\d,]+)")
         val matcher = regex.matcher(content)
         
         if (matcher.find()) {
             val monto = matcher.group(2)?.replace(",", "") ?: "0.00"
-            val nombre = content.replace(matcher.group(0)!!, "")
-                .replace("¡YAPEASTE!", "")
-                .replace("TE ENVIÓ", "")
-                .replace("PAGO RECIBIDO", "")
-                .replace("HAS RECIBIDO", "").trim()
+            // Limpiar nombre para que suene natural (sin mayúsculas forzadas)
+            var nombre = content.replace(matcher.group(0)!!, "", true)
+                .replace("¡Yapeaste!", "", true)
+                .replace("te envió", "", true)
+                .replace("Pago recibido", "", true)
+                .replace("Has recibido", "", true).trim()
+
+            if (nombre.isEmpty()) nombre = "Alguien"
             
             val banco = when {
-                pkg.contains("yape") -> "YAPE"
-                pkg.contains("bcp") -> "BCP"
-                pkg.contains("plin") -> "PLIN"
-                pkg.contains("test") -> "PRUEBA"
-                else -> "BANCO"
+                pkg.contains("yape") -> "Yape"
+                pkg.contains("bcp") -> "B C P"
+                pkg.contains("plin") -> "Plin"
+                pkg.contains("test") -> "Prueba"
+                else -> "Banco"
             }
 
-            speak("Nuevo pago de $nombre por $monto soles")
+            // HABLA NATURAL: "Nuevo pago de Juan Pérez por 10 soles 50"
+            val montoParaHablar = monto.replace(".", " soles ")
+            speak("Señor, nuevo pago de $nombre por $montoParaHablar céntimos")
             
             serviceScope.launch {
                 sendToTelegram("🚀 *PAGO CONFIRMADO*\n💰 Monto: S/ $monto\n👤 De: $nombre\n🏦 Banco: $banco")
@@ -125,7 +131,7 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
     }
 
     private fun activarAlertaCritica() {
-        speak("ALERTA DE PÁNICO ACTIVADA. EMERGENCIA EN LA RED STARK.")
+        speak("Alerta de pánico activada. Emergencia detectada en la red Stark.")
         val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
             val vibratorManager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
             vibratorManager.defaultVibrator
@@ -147,7 +153,8 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
             val params = Bundle()
             params.putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f)
             params.putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, android.media.AudioManager.STREAM_ALARM)
-            tts.speak(text, TextToSpeech.QUEUE_ADD, params, "STARK_ID")
+            // Usar minúsculas y pausas para naturalidad
+            tts.speak(text.lowercase(), TextToSpeech.QUEUE_ADD, params, "STARK_ID")
         } else {
             pendingMessages.add(text)
         }
@@ -155,7 +162,11 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
 
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
-            tts.language = Locale("es", "ES")
+            // Intentar usar español de Latinoamérica si está disponible
+            val result = tts.setLanguage(Locale("es", "MX"))
+            if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
+                tts.language = Locale("es", "ES")
+            }
             isTtsReady = true
             while (pendingMessages.isNotEmpty()) {
                 speak(pendingMessages.removeAt(0))
