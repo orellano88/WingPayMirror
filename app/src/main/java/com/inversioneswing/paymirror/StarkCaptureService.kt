@@ -65,11 +65,26 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val pkg = sbn.packageName
+        val extras = sbn.notification.extras
+        val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
+        val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
+        val fullContent = "$title $text"
+
+        // 1. INTERCEPCIÓN DE PAGOS (Yape/BCP)
         if (pkg.contains("yape") || pkg.contains("bcp")) {
-            val extras = sbn.notification.extras
-            val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
-            val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
-            processPayment("$title $text", pkg)
+            processPayment(fullContent, pkg)
+        }
+
+        // 2. INTERCEPCIÓN DE SOS (Telegram - Efecto Espejo)
+        if (pkg.contains("telegram") && fullContent.contains("[ALERTA_SOS]")) {
+            speak("🚨 ¡ALERTA DE PÁNICO ACTIVADA! ¡EMERGENCIA DETECTADA EN LA RED STARK! 🚨")
+            // Opcional: Vibración intensa
+            val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                vibrator.vibrate(VibrationEffect.createOneShot(5000, VibrationEffect.DEFAULT_AMPLITUDE))
+            } else {
+                vibrator.vibrate(5000)
+            }
         }
     }
 
