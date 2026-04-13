@@ -11,6 +11,8 @@ import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.speech.tts.TextToSpeech
 import android.util.Log
+import android.os.Vibrator
+import android.os.VibrationEffect
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.*
 import org.json.JSONObject
@@ -37,9 +39,8 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
     }
 
     private fun awakeAndSpeak(text: String) {
-        // Despertar procesador por 10 segundos
         if (!wakeLock.isHeld) {
-            wakeLock.acquire(10 * 1000L)
+            wakeLock.acquire(15 * 1000L) // 15 segundos para dar tiempo a la oración
         }
         speak(text)
     }
@@ -47,25 +48,19 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         createNotificationChannel()
         val notification = createPersistentNotification()
-        
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             startForeground(101, notification, ServiceInfo.FOREGROUND_SERVICE_TYPE_SPECIAL_USE)
         } else {
             startForeground(101, notification)
         }
-        
-        intent?.getStringExtra("TEST_VOICE")?.let { speak(it) }
-
-        if (!::tts.isInitialized) {
-            tts = TextToSpeech(this, this)
-        }
+        intent?.getStringExtra("TEST_VOICE")?.let { awakeAndSpeak(it) }
+        if (!::tts.isInitialized) { tts = TextToSpeech(this, this) }
         return START_STICKY
     }
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             val channel = NotificationChannel(CHANNEL_ID, "WING Omega Sentinel", NotificationManager.IMPORTANCE_HIGH).apply {
-                description = "Canal Crítico de JARVIS"
                 enableVibration(true)
             }
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
@@ -73,8 +68,8 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
     }
 
     private fun createPersistentNotification() = NotificationCompat.Builder(this, CHANNEL_ID)
-        .setContentTitle("WING Sentinel v6.0")
-        .setContentText("Voz Humana Sincronizada")
+        .setContentTitle("WING Sentinel v7.1")
+        .setContentText("Inteligencia Lingüística Activa")
         .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
         .setPriority(NotificationCompat.PRIORITY_HIGH)
         .build()
@@ -84,83 +79,73 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
         val extras = sbn.notification.extras
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
         val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
-        
-        // Mantener original para hablar, y mayúsculas solo para buscar
-        val originalContent = "$title $text"
-        val searchContent = originalContent.uppercase()
+        val fullContent = "$title $text"
 
-        // 1. CAPTURA DE PAGOS REALES
-        if (pkg.contains("yape") || pkg.contains("bcp") || pkg.contains("plin") || pkg.contains("interbank") || pkg.contains("scotia")) {
-            if (!processPayment(originalContent, pkg)) {
-                serviceScope.launch {
-                    sendToTelegram("⚠️ *AVISO DE JARVIS*\nSe detectó actividad en $pkg pero no se pudo extraer el monto.\n📜 Contenido: $originalContent")
-                }
-            }
-        }
-
-        // 2. COMANDOS REMOTOS
-        if (pkg.contains("telegram")) {
-            when {
-                searchContent.contains("[ALERTA_SOS]") -> activarAlertaCritica()
-                searchContent.contains("[TEST_PAGO]") -> {
-                    val fakeContent = originalContent.replace("[TEST_PAGO]", "", true).trim()
-                    processPayment(fakeContent, "yape_test")
-                }
-            }
+        // 1. CAPTURA DE PAGOS Y SOS
+        if (pkg.contains("yape") || pkg.contains("bcp") || pkg.contains("plin") || pkg.contains("interbank") || pkg.contains("telegram")) {
+            processSmartContent(fullContent, pkg)
         }
     }
 
-    private fun processPayment(content: String, pkg: String): Boolean {
+    private fun processSmartContent(content: String, pkg: String) {
+        val upperContent = content.uppercase()
+
+        // DETECCIÓN SOS
+        if (upperContent.contains("[ALERTA_SOS]")) {
+            activarAlertaCritica()
+            return
+        }
+
+        // PARSER DE PAGOS (Regex Universal)
         val regex = Pattern.compile("(S/|S/\\.|S/\\s*)\\s*([\\d,]+\\.\\d{2}|[\\d,]+)")
         val matcher = regex.matcher(content)
         
         if (matcher.find()) {
-            val monto = matcher.group(2)?.replace(",", "") ?: "0.00"
-            // Limpiar nombre para que suene natural (sin mayúsculas forzadas)
-            var nombre = content.replace(matcher.group(0)!!, "", true)
+            val montoRaw = matcher.group(2)?.replace(",", "") ?: "0.00"
+            
+            // LIMPIEZA DE NOMBRE (Parser Humano)
+            var nombreRaw = content.replace(matcher.group(0)!!, "", true)
+                .replace("[TEST_PAGO]", "", true)
                 .replace("¡Yapeaste!", "", true)
                 .replace("te envió", "", true)
                 .replace("Pago recibido", "", true)
-                .replace("Has recibido", "", true).trim()
+                .replace("Has recibido", "", true)
+                .replace(Regex("[^\\p{L}\\s]"), "") // Eliminar emojis y símbolos
+                .trim()
 
-            if (nombre.isEmpty()) nombre = "Alguien"
+            if (nombreRaw.isEmpty()) nombreRaw = "un cliente"
+            val nombreLimpio = formatTitleCase(nombreRaw)
             
             val banco = when {
                 pkg.contains("yape") -> "Yape"
                 pkg.contains("bcp") -> "B C P"
                 pkg.contains("plin") -> "Plin"
-                pkg.contains("test") -> "Prueba"
-                else -> "Banco"
+                else -> "su cuenta bancaria"
             }
 
-            // HABLA NATURAL CON DESPERTAR DE CPU
-            val montoParaHablar = monto.replace(".", " soles ")
-            awakeAndSpeak("Señor, nuevo pago de $nombre por $montoParaHablar céntimos")
+            // PROCESADOR DE MONEDA
+            val soles = montoRaw.split(".")[0]
+            val centimos = if (montoRaw.contains(".")) montoRaw.split(".")[1] else "00"
+            
+            // PLANTILLA HUMANA FINAL
+            val mensajeFinal = "Señor, $nombreLimpio le ha enviado $soles soles con $centimos céntimos a través de $banco."
+            
+            awakeAndSpeak(mensajeFinal)
             
             serviceScope.launch {
-                sendToTelegram("🚀 *PAGO CONFIRMADO*\n💰 Monto: S/ $monto\n👤 De: $nombre\n🏦 Banco: $banco")
+                sendToTelegram("🚀 *PAGO CONFIRMADO*\n💰 Monto: S/ $montoRaw\n👤 De: $nombreLimpio\n🏦 Banco: $banco")
             }
-            return true
         }
-        return false
+    }
+
+    private fun formatTitleCase(str: String): String {
+        return str.lowercase().split(" ").joinToString(" ") { it.replaceFirstChar { char -> char.uppercase() } }
     }
 
     private fun activarAlertaCritica() {
         awakeAndSpeak("Alerta de pánico activada. Emergencia detectada en la red Stark.")
-        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            val vibratorManager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
-            vibratorManager.defaultVibrator
-        } else {
-            @Suppress("DEPRECATION")
-            getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-        }
-
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            vibrator.vibrate(VibrationEffect.createOneShot(5000, VibrationEffect.DEFAULT_AMPLITUDE))
-        } else {
-            @Suppress("DEPRECATION")
-            vibrator.vibrate(5000)
-        }
+        val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        vibrator.vibrate(VibrationEffect.createOneShot(5000, VibrationEffect.DEFAULT_AMPLITUDE))
     }
 
     private fun speak(text: String) {
@@ -168,8 +153,7 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
             val params = Bundle()
             params.putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f)
             params.putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, android.media.AudioManager.STREAM_ALARM)
-            // Usar minúsculas y pausas para naturalidad
-            tts.speak(text.lowercase(), TextToSpeech.QUEUE_ADD, params, "STARK_ID")
+            tts.speak(text, TextToSpeech.QUEUE_ADD, params, "STARK_ID")
         } else {
             pendingMessages.add(text)
         }
@@ -177,15 +161,9 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
 
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS) {
-            // Intentar usar español de Latinoamérica si está disponible
-            val result = tts.setLanguage(Locale("es", "MX"))
-            if (result == TextToSpeech.LANG_MISSING_DATA || result == TextToSpeech.LANG_NOT_SUPPORTED) {
-                tts.language = Locale("es", "ES")
-            }
+            tts.language = Locale("es", "MX")
             isTtsReady = true
-            while (pendingMessages.isNotEmpty()) {
-                speak(pendingMessages.removeAt(0))
-            }
+            while (pendingMessages.isNotEmpty()) { speak(pendingMessages.removeAt(0)) }
         }
     }
 
@@ -204,10 +182,7 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
 
     override fun onDestroy() {
         serviceJob.cancel()
-        if (::tts.isInitialized) {
-            tts.stop()
-            tts.shutdown()
-        }
+        if (::tts.isInitialized) { tts.shutdown() }
         super.onDestroy()
     }
 }

@@ -11,8 +11,8 @@ android {
         applicationId "com.inversioneswing.paymirror"
         minSdk 26
         targetSdk 34
-        versionCode 700
-        versionName "7.0-OMEGA-DESPERTAR"
+        versionCode 701
+        versionName "7.1-OMEGA-LINGUISTICO"
         testInstrumentationRunner "androidx.test.runner.AndroidJUnitRunner"
     }
 
