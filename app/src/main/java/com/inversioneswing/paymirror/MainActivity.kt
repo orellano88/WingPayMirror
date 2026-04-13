@@ -15,21 +15,37 @@ class MainActivity : AppCompatActivity() {
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        // DISEÑO OMEGA ULTIMATE (v5.5)
+        // DISEÑO OMEGA VOICE (v5.6)
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(60, 60, 60, 60)
             gravity = Gravity.CENTER
-            setBackgroundColor(0xFF121212.toInt())
+            setBackgroundColor(0xFF000000.toInt()) // Negro Stark Puro
         }
 
         val title = TextView(this).apply {
-            text = "WING SENTINEL v5.5 OMEGA"
+            text = "WING SENTINEL v5.6 OMEGA VOICE"
             textSize = 24f
-            setTextColor(0xFF00FFCC.toInt()) // Cyan Stark
+            setTextColor(0xFFFFD700.toInt()) // Dorado Stark (Gold)
             setTypeface(null, Typeface.BOLD)
             setPadding(0, 0, 0, 40)
             gravity = Gravity.CENTER
+        }
+
+        val btnTestVoice = Button(this).apply {
+            text = "🔊 PROBAR VOZ DE JARVIS"
+            setBackgroundColor(0xFFFF0000.toInt()) // Rojo Stark
+            setTextColor(0xFFFFFFFF.toInt())
+            setOnClickListener { 
+                val intent = Intent(this@MainActivity, StarkCaptureService::class.java)
+                intent.putExtra("TEST_VOICE", "Señor, el sistema de audio está operando a máxima potencia. JARVIS está listo.")
+                if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                    startForegroundService(intent)
+                } else {
+                    startService(intent)
+                }
+                Toast.makeText(context, "Emitiendo pulso de voz...", Toast.LENGTH_SHORT).show()
+            }
         }
 
         val btnAutoStart = Button(this).apply {

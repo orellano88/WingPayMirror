@@ -38,7 +38,14 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
             startForeground(101, notification)
         }
         
-        tts = TextToSpeech(this, this)
+        // RECEPTOR DE VOZ DE PRUEBA (v5.6)
+        intent?.getStringExtra("TEST_VOICE")?.let { message ->
+            if (isTtsReady) speak(message)
+        }
+
+        if (!::tts.isInitialized) {
+            tts = TextToSpeech(this, this)
+        }
         return START_STICKY
     }
 
