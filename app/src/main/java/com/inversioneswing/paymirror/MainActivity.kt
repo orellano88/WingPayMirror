@@ -8,25 +8,26 @@ import android.view.Gravity
 import android.widget.*
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
+import android.graphics.Typeface
 
 class MainActivity : AppCompatActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
         
-        // DISEÑO OMEGA MINIMALISTA (v5.1)
+        // DISEÑO OMEGA MINIMALISTA (v5.4)
         val layout = LinearLayout(this).apply {
             orientation = LinearLayout.VERTICAL
             setPadding(60, 60, 60, 60)
             gravity = Gravity.CENTER
-            backgroundColor = 0xFF121212.toInt() // Modo Oscuro Stark
+            setBackgroundColor(0xFF121212.toInt()) // Modo Oscuro Stark
         }
 
         val title = TextView(this).apply {
-            text = "WING SENTINEL OMEGA v5.1"
+            text = "WING SENTINEL OMEGA v5.4"
             textSize = 24f
             setTextColor(0xFFFF0000.toInt())
-            textStyle = android.graphics.Typeface.BOLD
+            setTypeface(null, Typeface.BOLD)
             setPadding(0, 0, 0, 40)
             gravity = Gravity.CENTER
         }
