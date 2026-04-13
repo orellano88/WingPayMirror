@@ -2,7 +2,6 @@ package com.inversioneswing.paymirror
 
 import android.Manifest
 import android.app.Activity
-import android.app.AlertDialog
 import android.content.*
 import android.content.pm.PackageManager
 import android.graphics.Bitmap
@@ -19,6 +18,7 @@ import android.util.Base64
 import android.view.*
 import android.widget.*
 import androidx.activity.result.contract.ActivityResultContracts
+import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatActivity
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
@@ -65,8 +65,8 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         audioManager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         setupUI()
         
-        // --- ASISTENTE DE CONFIGURACIÓN STARK (v40.7) ---
-        checkPermissionsAndServices()
+        // --- INICIAR SECUENCIA STARK ---
+        checkCoreSystems()
     }
 
     private fun setupUI() {
@@ -84,44 +84,36 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
         findViewById<ImageButton>(R.id.btnAttach).setOnClickListener { cameraLauncher.launch(Intent(MediaStore.ACTION_IMAGE_CAPTURE)) }
     }
 
-    private fun checkPermissionsAndServices() {
-        val missing = mutableListOf<String>()
-        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) missing.add(Manifest.permission.CAMERA)
+    private fun checkCoreSystems() {
+        val permissions = arrayOf(Manifest.permission.CAMERA)
+        val missing = permissions.filter { ContextCompat.checkSelfPermission(this, it) != PackageManager.PERMISSION_GRANTED }
         
         if (missing.isNotEmpty()) {
             ActivityCompat.requestPermissions(this, missing.toTypedArray(), 100)
         } else {
-            // Verificar Servicios de Sistema
-            if (!isNotificationServiceEnabled()) showServiceDialog("ACCESO A NOTIFICACIONES", Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
-            else if (!isAccessibilityServiceEnabled()) showServiceDialog("SERVICIO DE ACCESIBILIDAD", Settings.ACTION_ACCESSIBILITY_SETTINGS)
-            else {
+            if (!isServiceEnabled(StarkCaptureService::class.java, "enabled_notification_listeners")) {
+                showAssistDialog("OÍDO (Notificaciones)", Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+            } else if (!isServiceEnabled(StarkAccessibilityService::class.java, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)) {
+                showAssistDialog("CORAZÓN (Accesibilidad)", Settings.ACTION_ACCESSIBILITY_SETTINGS)
+            } else {
                 startNeuralSync()
                 requestImmortality()
             }
         }
     }
 
-    private fun isNotificationServiceEnabled(): Boolean {
-        val cn = ComponentName(this, StarkCaptureService::class.java)
-        val flat = Settings.Secure.getString(contentResolver, "enabled_notification_listeners")
-        return flat != null && flat.contains(cn.flattenToString())
+    private fun isServiceEnabled(serviceClass: Class<*>, settingsKey: String): Boolean {
+        val flat = Settings.Secure.getString(contentResolver, settingsKey)
+        return flat != null && flat.contains(ComponentName(this, serviceClass).flattenToString())
     }
 
-    private fun isAccessibilityServiceEnabled(): Boolean {
-        val cn = ComponentName(this, StarkAccessibilityService::class.java)
-        val flat = Settings.Secure.getString(contentResolver, Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES)
-        return flat != null && flat.contains(cn.flattenToString())
-    }
-
-    private fun showServiceDialog(name: String, action: String) {
+    private fun showAssistDialog(name: String, action: String) {
         AlertDialog.Builder(this)
-            .setTitle("CONFIGURACIÓN STARK")
-            .setMessage("Sincronizando Sistemas... Pulse ACEPTAR para activar el $name de JARVIS. Sin esto, el aplicativo no podrá ver los pagos.")
+            .setTitle("ASISTENTE JARVIS")
+            .setMessage("Señor, el sistema requiere activar el $name. Al pulsar ACEPTAR, busque 'WingPay Mirror' y actívelo.")
             .setCancelable(false)
-            .setPositiveButton("ACEPTAR") { _, _ ->
-                startActivity(Intent(action))
-                Toast.makeText(this, "Busque 'WingPay Mirror' y actívelo", Toast.LENGTH_LONG).show()
-            }.show()
+            .setPositiveButton("ACEPTAR") { _, _ -> startActivity(Intent(action)) }
+            .show()
     }
 
     private fun requestImmortality() {
@@ -181,8 +173,7 @@ class MainActivity : AppCompatActivity(), TextToSpeech.OnInitListener {
             try {
                 audioManager.isSpeakerphoneOn = true
                 audioManager.mode = AudioManager.MODE_IN_COMMUNICATION
-                val maxVol = audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
-                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, maxVol, 0)
+                audioManager.setStreamVolume(AudioManager.STREAM_MUSIC, audioManager.getStreamMaxVolume(AudioManager.STREAM_MUSIC), 0)
                 tts.speak("Señor, atención. Nuevo pago de $n por $m soles.", TextToSpeech.QUEUE_FLUSH, null, "PAY_ID")
             } catch (e: Exception) {}
         }
