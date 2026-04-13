@@ -14,14 +14,10 @@
     <application
         android:allowBackup="true"
         android:icon="@android:drawable/sym_def_app_icon"
-        android:label="WingPay OMEGA v5.1"
+        android:label="WingPay OMEGA v5.2"
         android:roundIcon="@android:drawable/sym_def_app_icon"
         android:supportsRtl="true"
         android:theme="@style/Theme.AppCompat.Light.NoActionBar">
-
-        <property
-            android:name="android.app.PROPERTY_SPECIAL_USE_FGS_TYPE"
-            android:value="Servicio de intercepción de pagos y avisos de audio en tiempo real para gestión empresarial Stark." />
 
         <activity
             android:name=".MainActivity"
