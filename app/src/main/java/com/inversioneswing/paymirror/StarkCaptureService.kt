@@ -5,14 +5,12 @@ import android.app.NotificationChannel
 import android.app.NotificationManager
 import android.content.*
 import android.content.pm.ServiceInfo
-import android.os.Build
+import android.os.*
 import android.provider.Settings
 import android.service.notification.NotificationListenerService
 import android.service.notification.StatusBarNotification
 import android.speech.tts.TextToSpeech
 import android.util.Log
-import android.os.Vibrator
-import android.os.VibrationEffect
 import androidx.core.app.NotificationCompat
 import kotlinx.coroutines.*
 import org.json.JSONObject
@@ -29,6 +27,7 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
     private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
     private lateinit var tts: TextToSpeech
     private var isTtsReady = false
+    private val pendingMessages = mutableListOf<String>()
 
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         createNotificationChannel()
@@ -40,9 +39,9 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
             startForeground(101, notification)
         }
         
-        // RECEPTOR DE VOZ DE PRUEBA (v5.6)
+        // RECEPTOR DE PRUEBA
         intent?.getStringExtra("TEST_VOICE")?.let { message ->
-            if (isTtsReady) speak(message)
+            speak(message)
         }
 
         if (!::tts.isInitialized) {
@@ -53,40 +52,36 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(CHANNEL_ID, "WING Omega Sentinel", NotificationManager.IMPORTANCE_LOW)
+            val channel = NotificationChannel(CHANNEL_ID, "WING Omega Sentinel", NotificationManager.IMPORTANCE_HIGH).apply {
+                description = "Canal Crítico de JARVIS"
+                enableVibration(true)
+            }
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
     }
 
     private fun createPersistentNotification() = NotificationCompat.Builder(this, CHANNEL_ID)
-        .setContentTitle("WING Sentinel v43.0 (OMEGA)")
-        .setContentText("Intercepción en Segundo Plano Activa")
+        .setContentTitle("WING Sentinel v5.8")
+        .setContentText("Motor Stark Vigilando")
         .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-        .setPriority(NotificationCompat.PRIORITY_LOW)
+        .setPriority(NotificationCompat.PRIORITY_HIGH)
         .build()
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
-        val pkg = sbn.packageName
+        val pkg = sbn.packageName.lowercase()
         val extras = sbn.notification.extras
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
         val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
-        val fullContent = "$title $text"
+        val fullContent = "$title $text".uppercase()
 
-        // 1. INTERCEPCIÓN DE PAGOS (Yape/BCP)
-        if (pkg.contains("yape") || pkg.contains("bcp")) {
+        // 1. INTERCEPCIÓN DE PAGOS
+        if (pkg.contains("yape") || pkg.contains("bcp") || pkg.contains("plin") || pkg.contains("interbank")) {
             processPayment(fullContent, pkg)
         }
 
-        // 2. INTERCEPCIÓN DE SOS (Telegram - Efecto Espejo)
-        if (pkg.contains("telegram") && fullContent.contains("[ALERTA_SOS]")) {
-            speak("🚨 ¡ALERTA DE PÁNICO ACTIVADA! ¡EMERGENCIA DETECTADA EN LA RED STARK! 🚨")
-            // Opcional: Vibración intensa
-            val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-                vibrator.vibrate(VibrationEffect.createOneShot(5000, VibrationEffect.DEFAULT_AMPLITUDE))
-            } else {
-                vibrator.vibrate(5000)
-            }
+        // 2. SOS MULTI-VERSIÓN (Telegram, WhatsApp, SMS)
+        if (fullContent.contains("[ALERTA_SOS]")) {
+            activarAlertaCritica()
         }
     }
 
@@ -95,21 +90,64 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
         val matcher = regex.matcher(content)
         if (matcher.find()) {
             val monto = matcher.group(1)?.replace(",", "") ?: "0.00"
-            val nombre = content.replace(matcher.group(0)!!, "").replace("¡Yapeaste!", "").replace("te envió", "").trim()
-            val banco = if(pkg.contains("yape")) "YAPE" else "BCP"
+            val nombre = content.replace(matcher.group(0)!!, "")
+                .replace("¡YAPEASTE!", "")
+                .replace("TE ENVIÓ", "")
+                .replace("PAGO RECIBIDO", "").trim()
+            
+            val banco = when {
+                pkg.contains("yape") -> "YAPE"
+                pkg.contains("bcp") -> "BCP"
+                pkg.contains("plin") -> "PLIN"
+                else -> "BANCO"
+            }
 
-            // 1. HABLAR (ALTAVOZ LOCAL)
             speak("Nuevo pago de $nombre por $monto soles")
-
-            // 2. TELEGRAM (PUENTE REMOTO)
+            
             serviceScope.launch {
                 sendToTelegram("🚀 *PAGO DETECTADO*\n💰 Monto: S/ $monto\n👤 De: $nombre\n🏦 Banco: $banco")
             }
         }
     }
 
+    private fun activarAlertaCritica() {
+        speak("ALERTA DE PÁNICO ACTIVADA. EMERGENCIA EN LA RED STARK.")
+        val vibrator = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            val vibratorManager = getSystemService(Context.VIBRATOR_MANAGER_SERVICE) as VibratorManager
+            vibratorManager.defaultVibrator
+        } else {
+            @Suppress("DEPRECATION")
+            getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        }
+
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            vibrator.vibrate(VibrationEffect.createOneShot(5000, VibrationEffect.DEFAULT_AMPLITUDE))
+        } else {
+            @Suppress("DEPRECATION")
+            vibrator.vibrate(5000)
+        }
+    }
+
     private fun speak(text: String) {
-        if (isTtsReady) tts.speak(text, TextToSpeech.QUEUE_FLUSH, null, "PAY_ID")
+        if (isTtsReady) {
+            val params = Bundle()
+            params.putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, 1.0f)
+            params.putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, android.media.AudioManager.STREAM_ALARM)
+            tts.speak(text, TextToSpeech.QUEUE_ADD, params, "STARK_ID")
+        } else {
+            pendingMessages.add(text)
+        }
+    }
+
+    override fun onInit(status: Int) {
+        if (status == TextToSpeech.SUCCESS) {
+            tts.language = Locale("es", "ES")
+            isTtsReady = true
+            // Gritar mensajes pendientes
+            while (pendingMessages.isNotEmpty()) {
+                speak(pendingMessages.removeAt(0))
+            }
+        }
     }
 
     private fun sendToTelegram(message: String) {
@@ -125,6 +163,12 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
         } catch (e: Exception) {}
     }
 
-    override fun onInit(s: Int) { if (s == TextToSpeech.SUCCESS) { tts.language = Locale("es", "ES"); isTtsReady = true } }
-    override fun onDestroy() { serviceJob.cancel(); tts.shutdown(); super.onDestroy() }
+    override fun onDestroy() {
+        serviceJob.cancel()
+        if (::tts.isInitialized) {
+            tts.stop()
+            tts.shutdown()
+        }
+        super.onDestroy()
+    }
 }
