@@ -106,12 +106,24 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
         
         if (matcher.find()) {
             val montoRaw = matcher.group(2)?.replace(",", "") ?: "0.00"
-            var nombreRaw = content.replace(matcher.group(0)!!, "", true)
+            val montoFull = matcher.group(0)!!
+            
+            // Lógica de extracción de nombre mejorada (Protocolo Stark v7.5)
+            var nombreRaw = content
+                .replace(montoFull, "", true)
                 .replace("¡Yapeaste!", "", true)
                 .replace("te envió", "", true)
+                .replace("te ha yapeado", "", true)
+                .replace("te pagó", "", true)
                 .replace("Pago recibido", "", true)
-                .replace(Regex("[^\\p{L}\\s]"), "") // Solo letras
+                .replace("Transferencia exitosa", "", true)
+                .replace("Confirmación de pago", "", true)
+                .replace(Regex("[^\\p{L}\\s]"), "") // Solo letras y espacios
                 .trim()
+
+            // Si el nombre es muy largo, probablemente capturamos basura, tomamos las primeras 3 palabras
+            val palabras = nombreRaw.split(" ").filter { it.length > 1 }
+            nombreRaw = if (palabras.size > 3) palabras.take(3).joinToString(" ") else palabras.joinToString(" ")
 
             if (nombreRaw.isEmpty()) nombreRaw = "un cliente"
             val nombreLimpio = formatTitleCase(nombreRaw)
@@ -120,36 +132,56 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
                 pkg.contains("yape") -> "Yape"
                 pkg.contains("bcp") -> "B C P"
                 pkg.contains("plin") -> "Plin"
+                pkg.contains("interbank") -> "Interbank"
                 else -> "su cuenta"
             }
 
             val soles = montoRaw.split(".")[0]
             val centimos = if (montoRaw.contains(".")) montoRaw.split(".")[1] else "00"
             
-            val mensajeFinal = "Señor, $nombreLimpio le ha enviado $soles soles con $centimos céntimos a través de $banco."
+            val mensajeFinal = "¡Aviso de Pago! $banco. $nombreLimpio te envió $soles soles con $centimos céntimos."
             awakeAndSpeak(mensajeFinal)
             
             serviceScope.launch {
+                // 1. Sincronización Telegram
                 sendToTelegram("🚀 *PAGO CONFIRMADO*\n💰 Monto: S/ $montoRaw\n👤 De: $nombreLimpio\n🏦 Banco: $banco")
+                
+                // 2. Sincronización Omega Mirror (ntfy.sh) - WhatsApp Web Style
+                sendToMirror(banco, nombreLimpio, montoRaw)
             }
         }
     }
 
-    private fun formatTitleCase(str: String): String {
-        return str.lowercase().split(" ").filter { it.isNotEmpty() }.joinToString(" ") { it.replaceFirstChar { char -> char.uppercase() } }
-    }
-
-    private fun activarAlertaCritica() {
-        awakeAndSpeak("Alerta de pánico activada en la red Stark.")
-        val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
-        vibrator.vibrate(VibrationEffect.createOneShot(5000, VibrationEffect.DEFAULT_AMPLITUDE))
+    private fun sendToMirror(banco: String, nombre: String, monto: String) {
+        try {
+            val topic = "wingpay_stark_8502345704" // Topic privado basado en ChatID
+            val url = URL("https://ntfy.sh/$topic")
+            (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"
+                doOutput = true
+                setRequestProperty("Title", "NUEVO PAGO $banco")
+                setRequestProperty("Tags", "moneybag,sparkles")
+                val json = JSONObject().apply {
+                    put("bank", banco)
+                    put("name", nombre)
+                    put("amt", monto)
+                    put("time", System.currentTimeMillis())
+                }
+                OutputStreamWriter(outputStream).use { it.write(json.toString()) }
+                responseCode
+                disconnect()
+            }
+        } catch (e: Exception) {
+            Log.e("STARK", "Error sync mirror: ${e.message}")
+        }
     }
 
     private fun speak(text: String) {
         if (isTtsReady) {
             val params = Bundle()
             params.putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_ALARM)
-            tts.speak(text.lowercase(), TextToSpeech.QUEUE_ADD, params, "STARK_ID")
+            // Usamos QUEUE_FLUSH para que el audio sea instantáneo y cancele cualquier saludo previo
+            tts.speak(text.lowercase(), TextToSpeech.QUEUE_FLUSH, params, "STARK_ID")
         } else { pendingMessages.add(text) }
     }
 
