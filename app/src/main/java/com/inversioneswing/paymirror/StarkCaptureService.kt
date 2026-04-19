@@ -38,7 +38,6 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
     private fun awakeAndSpeak(text: String) {
         if (!wakeLock.isHeld) { wakeLock.acquire(15 * 1000L) }
         
-        // FORZAR VOLUMEN (Solución Huawei)
         val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
         am.setStreamVolume(AudioManager.STREAM_ALARM, am.getStreamMaxVolume(AudioManager.STREAM_ALARM), 0)
         
@@ -68,8 +67,8 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
     }
 
     private fun createPersistentNotification() = NotificationCompat.Builder(this, CHANNEL_ID)
-        .setContentTitle("WING Sentinel v7.2")
-        .setContentText("Sincronización Stark Perfecta")
+        .setContentTitle("WING Sentinel v8.0")
+        .setContentText("Sincronización Stark Activa")
         .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
         .setPriority(NotificationCompat.PRIORITY_HIGH)
         .build()
@@ -81,7 +80,6 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
         val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
         val fullContent = "$title $text"
 
-        // GATILLO DE COMANDOS REMOTOS (Telegram)
         if (pkg.contains("telegram")) {
             if (fullContent.uppercase().contains("[TEST_PAGO]")) {
                 val fakeContent = fullContent.replace("[TEST_PAGO]", "", true).trim()
@@ -94,7 +92,6 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
             }
         }
 
-        // CAPTURA DE PAGOS REALES
         if (pkg.contains("yape") || pkg.contains("bcp") || pkg.contains("plin") || pkg.contains("interbank")) {
             processSmartContent(fullContent, pkg)
         }
@@ -108,7 +105,6 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
             val montoRaw = matcher.group(2)?.replace(",", "") ?: "0.00"
             val montoFull = matcher.group(0)!!
             
-            // Lógica de extracción de nombre mejorada (Protocolo Stark v7.5)
             var nombreRaw = content
                 .replace(montoFull, "", true)
                 .replace("¡Yapeaste!", "", true)
@@ -118,10 +114,9 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
                 .replace("Pago recibido", "", true)
                 .replace("Transferencia exitosa", "", true)
                 .replace("Confirmación de pago", "", true)
-                .replace(Regex("[^\\p{L}\\s]"), "") // Solo letras y espacios
+                .replace(Regex("[^a-zA-Z\\s]"), "") // Corregido Regex en Kotlin
                 .trim()
 
-            // Si el nombre es muy largo, probablemente capturamos basura, tomamos las primeras 3 palabras
             val palabras = nombreRaw.split(" ").filter { it.length > 1 }
             nombreRaw = if (palabras.size > 3) palabras.take(3).joinToString(" ") else palabras.joinToString(" ")
 
@@ -143,36 +138,42 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
             awakeAndSpeak(mensajeFinal)
             
             serviceScope.launch {
-                // 1. Sincronización Telegram
                 sendToTelegram("🚀 *PAGO CONFIRMADO*\n💰 Monto: S/ $montoRaw\n👤 De: $nombreLimpio\n🏦 Banco: $banco")
-                
-                // 2. Sincronización Omega Mirror (ntfy.sh) - WhatsApp Web Style
                 sendToMirror(banco, nombreLimpio, montoRaw)
             }
         }
     }
 
+    private fun formatTitleCase(str: String): String {
+        if (str.isEmpty()) return str
+        return str.lowercase().split(" ").filter { it.isNotEmpty() }.joinToString(" ") { 
+            it.replaceFirstChar { char -> if (char.isLowerCase()) char.titlecase(Locale.getDefault()) else char.toString() } 
+        }
+    }
+
     private fun sendToMirror(banco: String, nombre: String, monto: String) {
         try {
-            val topic = "wingpay_stark_8502345704" // Topic privado basado en ChatID
+            val topic = "wingpay_stark_8502345704"
             val url = URL("https://ntfy.sh/$topic")
             (url.openConnection() as HttpURLConnection).apply {
-                requestMethod = "POST"
-                doOutput = true
-                setRequestProperty("Title", "NUEVO PAGO $banco")
-                setRequestProperty("Tags", "moneybag,sparkles")
+                requestMethod = "POST"; doOutput = true
+                setRequestProperty("Title", "PAGO $banco")
                 val json = JSONObject().apply {
-                    put("bank", banco)
-                    put("name", nombre)
-                    put("amt", monto)
-                    put("time", System.currentTimeMillis())
+                    put("bank", banco); put("name", nombre); put("amt", monto); put("time", System.currentTimeMillis())
                 }
                 OutputStreamWriter(outputStream).use { it.write(json.toString()) }
-                responseCode
-                disconnect()
+                responseCode; disconnect()
             }
-        } catch (e: Exception) {
-            Log.e("STARK", "Error sync mirror: ${e.message}")
+        } catch (e: Exception) {}
+    }
+
+    private fun activarAlertaCritica() {
+        awakeAndSpeak("Alerta de pánico activada en la red Stark.")
+        val vibrator = getSystemService(Context.VIBRATOR_SERVICE) as Vibrator
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            vibrator.vibrate(VibrationEffect.createOneShot(5000, VibrationEffect.DEFAULT_AMPLITUDE))
+        } else {
+            vibrator.vibrate(5000)
         }
     }
 
@@ -180,7 +181,6 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
         if (isTtsReady) {
             val params = Bundle()
             params.putInt(TextToSpeech.Engine.KEY_PARAM_STREAM, AudioManager.STREAM_ALARM)
-            // Usamos QUEUE_FLUSH para que el audio sea instantáneo y cancele cualquier saludo previo
             tts.speak(text.lowercase(), TextToSpeech.QUEUE_FLUSH, params, "STARK_ID")
         } else { pendingMessages.add(text) }
     }
