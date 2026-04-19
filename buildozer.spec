@@ -1,10 +1,10 @@
 [app]
-title = WingPay Sentinel
-package.name = wingpay_sentinel
-package.domain = com.inversioneswing.sentinel
+title = WingPay OMEGA v8.0 STARK
+package.name = wingpay_stark_sync
+package.domain = com.inversioneswing.stark
 source.dir = .
 source.include_exts = py,png,jpg,kv,atlas
-version = 37.5
+version = 8.0
 requirements = python3,kivy,plyer,android,requests,certifi
 orientation = portrait
 osx.python_version = 3
