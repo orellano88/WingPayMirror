@@ -36,9 +36,13 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
         super.onCreate()
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
         wakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "WingPay:WakeLock")
+        // Bloqueo de CPU infinito para que no muera con la pantalla apagada
+        if (!wakeLock.isHeld) { wakeLock.acquire() }
     }
 
     private fun awakeAndSpeak(text: String) {
+        // No necesitamos re-adquirir aquí si ya lo tenemos en onCreate, 
+        // pero por seguridad aseguramos que el sistema esté despierto
         if (!wakeLock.isHeld) { wakeLock.acquire(15 * 1000L) }
         
         val am = getSystemService(Context.AUDIO_SERVICE) as AudioManager
@@ -62,18 +66,23 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            val channel = NotificationChannel(CHANNEL_ID, "WING Omega Sentinel", NotificationManager.IMPORTANCE_HIGH).apply {
-                enableVibration(true)
+            // IMPORTANCE_MIN: No hace ruido, no vibra, no sale el icono arriba (solo en la cortina)
+            val channel = NotificationChannel(CHANNEL_ID, "WING Omega Sentinel", NotificationManager.IMPORTANCE_MIN).apply {
+                description = "Sincronización Stark Silenciosa"
+                enableVibration(false)
+                setSound(null, null)
             }
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
     }
 
     private fun createPersistentNotification() = NotificationCompat.Builder(this, CHANNEL_ID)
-        .setContentTitle("WING Sentinel v8.0")
-        .setContentText("Sincronización Stark Activa")
+        .setContentTitle("Sincronización Stark")
+        .setContentText("Sentinel v8.0 en modo discreto")
         .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-        .setPriority(NotificationCompat.PRIORITY_HIGH)
+        .setPriority(NotificationCompat.PRIORITY_MIN) // Mínima prioridad para que no fastidie
+        .setCategory(NotificationCompat.CATEGORY_SERVICE)
+        .setOngoing(true)
         .build()
 
     override fun onNotificationPosted(sbn: StatusBarNotification) {
