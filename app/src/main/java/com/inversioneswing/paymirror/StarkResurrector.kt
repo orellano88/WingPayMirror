@@ -30,7 +30,7 @@ class StarkResurrector : BroadcastReceiver() {
             PendingIntent.FLAG_UPDATE_CURRENT or PendingIntent.FLAG_IMMUTABLE
         )
 
-        val triggerTime = System.currentTimeMillis() + (10 * 60 * 1000) // 10 Minutos
+        val triggerTime = System.currentTimeMillis() + (5 * 60 * 1000) // Reducido a 5 Minutos para EMUI
         
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             alarmManager.setExactAndAllowWhileIdle(AlarmManager.RTC_WAKEUP, triggerTime, pendingIntent)
