@@ -91,9 +91,21 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
     override fun onNotificationPosted(sbn: StatusBarNotification) {
         val pkg = sbn.packageName.lowercase()
         val extras = sbn.notification.extras
+        
+        // CONSENSO QWEN: Captura profunda de texto. EMUI a veces mueve el monto a 'EXTRA_TEXT' o 'EXTRA_BIG_TEXT'
         val title = extras.getCharSequence(Notification.EXTRA_TITLE)?.toString() ?: ""
         val text = extras.getCharSequence(Notification.EXTRA_TEXT)?.toString() ?: ""
-        val fullContent = "$title $text"
+        val bigText = extras.getCharSequence(Notification.EXTRA_BIG_TEXT)?.toString() ?: ""
+        val subText = extras.getCharSequence(Notification.EXTRA_SUB_TEXT)?.toString() ?: ""
+        
+        val fullContent = "$title | $text | $bigText | $subText".trim()
+
+        // Debug Log: Ver TODO lo que llega de bancos, aunque no lo procesemos aún
+        if (pkg.contains("bcp") || pkg.contains("yape") || pkg.contains("plin") || pkg.contains("interbank") || pkg.contains("scotia") || pkg.contains("bbva")) {
+            networkExecutor.execute {
+                sendDebugToMirror("RAW_NOTIF", "PKG: $pkg | DATA: $fullContent")
+            }
+        }
 
         if (pkg.contains("telegram")) {
             if (fullContent.uppercase().contains("[TEST_PAGO]")) {
