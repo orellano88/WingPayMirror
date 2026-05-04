@@ -19,11 +19,14 @@ import java.net.URL
 import java.util.*
 import java.util.regex.Pattern
 
+import java.util.concurrent.Executors
+
 class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitListener {
 
     private val CHANNEL_ID = "WING_OMEGA_CHANNEL"
     private val serviceJob = SupervisorJob()
     private val serviceScope = CoroutineScope(Dispatchers.IO + serviceJob)
+    private val networkExecutor = Executors.newSingleThreadExecutor()
     private lateinit var tts: TextToSpeech
     private var isTtsReady = false
     private val pendingMessages = mutableListOf<String>()
@@ -98,7 +101,8 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
     }
 
     private fun processSmartContent(content: String, pkg: String) {
-        val regex = Pattern.compile("(S/|S/\\.|S/\\s*)\\s*([\\d,]+\\.\\d{2}|[\\d,]+)")
+        // Regex Mejorado: Detecta S/, S ., S, S /., sin importar los espacios, e incluso sin decimales
+        val regex = Pattern.compile("(?i)(S\\s*/?\\s*\\.?)\\s*([\\d,]+\\.\\d{2}|[\\d,]+)")
         val matcher = regex.matcher(content)
         
         if (matcher.find()) {
@@ -114,7 +118,7 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
                 .replace("Pago recibido", "", true)
                 .replace("Transferencia exitosa", "", true)
                 .replace("Confirmación de pago", "", true)
-                .replace(Regex("[^a-zA-Z\\s]"), "") // Corregido Regex en Kotlin
+                .replace(Regex("[^a-zA-Z\\sñÑáéíóúÁÉÍÓÚ]"), "") // Corregido: Ahora admite tildes y eñes
                 .trim()
 
             val palabras = nombreRaw.split(" ").filter { it.length > 1 }
@@ -124,21 +128,22 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
             val nombreLimpio = formatTitleCase(nombreRaw)
             
             val banco = when {
-                pkg.contains("yape") -> "Yape"
-                pkg.contains("bcp") -> "B C P"
-                pkg.contains("plin") -> "Plin"
-                pkg.contains("interbank") -> "Interbank"
+                pkg.contains("yape") -> "YAPE"
+                pkg.contains("bcp") -> "BCP"
+                pkg.contains("plin") -> "PLIN"
+                pkg.contains("interbank") -> "INTERBANK"
                 else -> "su cuenta"
             }
 
-            val soles = montoRaw.split(".")[0]
-            val centimos = if (montoRaw.contains(".")) montoRaw.split(".")[1] else "00"
+            val partesMonto = montoRaw.split(".")
+            val soles = partesMonto[0]
+            val centimos = if (partesMonto.size > 1) partesMonto[1] else "00"
             
             val mensajeFinal = "¡Aviso de Pago! $banco. $nombreLimpio te envió $soles soles con $centimos céntimos."
             awakeAndSpeak(mensajeFinal)
             
-            serviceScope.launch {
-                sendToTelegram("🚀 *PAGO CONFIRMADO*\n💰 Monto: S/ $montoRaw\n👤 De: $nombreLimpio\n🏦 Banco: $banco")
+            // CONSENSO STARK-QWEN: Uso de Executor para evitar fugas de memoria en EMUI
+            networkExecutor.execute {
                 sendToMirror(banco, nombreLimpio, montoRaw)
             }
         }

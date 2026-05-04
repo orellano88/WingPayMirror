@@ -60,6 +60,26 @@ class WingPaySentinel(BoxLayout):
             except Exception as e:
                 print(f"[ERROR] No se pudo activar WakeLock: {e}")
 
+    def request_emui_permissions(self):
+        try:
+            from kivy.utils import platform
+            if platform == 'android':
+                from jnius import autoclass
+                PythonActivity = autoclass('org.kivy.android.PythonActivity')
+                Intent = autoclass('android.content.Intent')
+                Settings = autoclass('android.provider.Settings')
+                currentActivity = PythonActivity.mActivity
+                
+                # Abrir Accesos a Notificaciones
+                intent_notif = Intent(Settings.ACTION_NOTIFICATION_LISTENER_SETTINGS)
+                currentActivity.startActivity(intent_notif)
+                
+                # Abrir Ignorar Optimizaciones de Batería
+                intent_bat = Intent(Settings.ACTION_IGNORE_BATTERY_OPTIMIZATION_SETTINGS)
+                currentActivity.startActivity(intent_bat)
+        except Exception as e:
+            self.add_message(f"Error abriendo permisos: {e}", is_user=False)
+
     def start_omega_sync(self):
         # Iniciar Escucha Global (WhatsApp Web Style)
         threading.Thread(target=self.ntfy_listener_task, daemon=True).start()
@@ -274,6 +294,12 @@ WingPaySentinel:
                 text: "WING PAY SENTINEL v37.7"
                 bold: True
                 font_size: '18sp'
+            Button:
+                text: "🛠 PERMISOS"
+                size_hint_x: None
+                width: '100dp'
+                background_color: 0.8, 0.6, 0.1, 1
+                on_release: root.request_emui_permissions()
             Button:
                 text: "🚨"
                 size_hint_x: None
