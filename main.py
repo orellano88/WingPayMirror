@@ -301,6 +301,12 @@ WingPaySentinel:
                 background_color: 0.8, 0.6, 0.1, 1
                 on_release: root.request_emui_permissions()
             Button:
+                text: "🧪 TEST"
+                size_hint_x: None
+                width: '70dp'
+                background_color: 0.1, 0.5, 0.8, 1
+                on_release: root.broadcast_to_mirror("YAPE", "PRUEBA STARK", "1.00")
+            Button:
                 text: "🚨"
                 size_hint_x: None
                 width: '50dp'
