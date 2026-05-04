@@ -66,22 +66,25 @@ class StarkCaptureService : NotificationListenerService(), TextToSpeech.OnInitLi
 
     private fun createNotificationChannel() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            // IMPORTANCE_MIN: No hace ruido, no vibra, no sale el icono arriba (solo en la cortina)
+            // IMPORTANCE_MIN (1) o IMPORTANCE_NONE (0): Cero intrusión.
             val channel = NotificationChannel(CHANNEL_ID, "WING Omega Sentinel", NotificationManager.IMPORTANCE_MIN).apply {
                 description = "Sincronización Stark Silenciosa"
                 enableVibration(false)
+                setShowBadge(false) // No muestra el punto en el icono
                 setSound(null, null)
+                lockscreenVisibility = Notification.VISIBILITY_SECRET // Escondido en pantalla de bloqueo
             }
             getSystemService(NotificationManager::class.java).createNotificationChannel(channel)
         }
     }
 
     private fun createPersistentNotification() = NotificationCompat.Builder(this, CHANNEL_ID)
-        .setContentTitle("Sincronización Stark")
-        .setContentText("Sentinel v8.0 en modo discreto")
+        .setContentTitle("WingPay Activo")
+        .setContentText("Sentinel operando en segundo plano")
         .setSmallIcon(android.R.drawable.ic_lock_idle_alarm)
-        .setPriority(NotificationCompat.PRIORITY_MIN) // Mínima prioridad para que no fastidie
+        .setPriority(NotificationCompat.PRIORITY_MIN) // Prioridad mínima para que no salte
         .setCategory(NotificationCompat.CATEGORY_SERVICE)
+        .setSilent(true) // Forzar silencio total
         .setOngoing(true)
         .build()
 
